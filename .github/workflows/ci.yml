@@ -1,0 +1,87 @@
+name: PornHub plugin CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pornhub-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WIZESTREAM_HOST_COMMIT: 68432a57853aa2c0ffdbe4f7c163c2fedd01c18e
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out this plugin
+        uses: actions/checkout@v6
+        with:
+          path: plugin
+
+      - name: Check out the pinned WizeStream host
+        uses: actions/checkout@v6
+        with:
+          repository: wizdom13/WizeStream
+          ref: ${{ env.WIZESTREAM_HOST_COMMIT }}
+          path: host
+
+      - uses: actions/setup-java@v5
+        with:
+          java-version: 21.0.12+8.0.LTS
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Install the host Android compiler profile
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.1.0"
+
+      - name: Export the host plugin SDK
+        working-directory: host
+        run: >-
+          ./gradlew :app:pluginSdkJar --stacktrace -DskipFormatKtlint --max-workers=2
+          '-Dorg.gradle.jvmargs=-Xmx4096M --add-opens jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED'
+
+      - name: Run offline extractor tests and build the DEX package
+        working-directory: host
+        run: >-
+          ./gradlew -p ../plugin
+          "-PpluginSdkJar=$GITHUB_WORKSPACE/host/app/build/outputs/plugin-sdk/wizestream-plugin-api.jar"
+          test pluginPackage --stacktrace --max-workers=2
+
+      - name: Verify repository signing with a temporary test key
+        working-directory: host
+        run: |
+          ./gradlew -p ../plugin \
+            "-PpluginSdkJar=$GITHUB_WORKSPACE/host/app/build/outputs/plugin-sdk/wizestream-plugin-api.jar" \
+            "-PpluginSigningKey=$RUNNER_TEMP/pornhub-ci-key.pk8" \
+            "-PpluginPublicKey=$RUNNER_TEMP/pornhub-ci-public.der" \
+            generateSigningKey repositoryIndex --stacktrace --max-workers=2
+          printf '%s\n' 'CI TEST ONLY: signed with a temporary key. Do not publish these files as a release.' \
+            > "$GITHUB_WORKSPACE/plugin/build/repo/CI-TEST-ONLY.txt"
+
+      - name: Upload the test-only package
+        uses: actions/upload-artifact@v7
+        with:
+          name: pornhub-ci-test-package
+          path: plugin/build/repo/*
+          if-no-files-found: error
+
+      - name: Upload offline test reports
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: pornhub-jvm-tests
+          path: |
+            plugin/build/reports/tests/test/**
+            plugin/build/test-results/test/**
+          if-no-files-found: ignore

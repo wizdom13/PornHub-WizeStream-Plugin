@@ -1,234 +1,333 @@
-# WizeStream Plugin Template
+# PornHub for WizeStream
 
-A standalone Kotlin project for **native WizeStream plugin API 2.0**. It builds a signed
-`.ppp` package and a JSON repository index that WizeStream can install.
+A Kotlin service plugin implementing **native WizeStream plugin API 2.0**. It adds **PornHub**
+to WizeStream's service selector and uses the host's networking, search results, local playlists
+and player.
 
-The included **WizeStream Example** service is a developer skeleton. Its URL handlers and
-extractors still need implementation; the example does not provide a working streaming service.
+- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.0** (`versionCode: 1`).
+- **Host:** WizeStream **1.52.2 or newer** (`versionCode: 1052002`), on Android **7/API 24 or newer**.
+- **Contract:** `host: "wizestream"`, `apiVersion: "2.0"`.
+- **Access:** public, anonymous responses; no API key or account credentials are required.
+- **Audience:** adults only. The generated repository entry has **`nsfw: true`**, and extracted
+  streams report an age limit of **18**.
 
-- [WizeStream application](https://github.com/wizdom13/WizeStream)
-- [Plugin installation and API guide](https://github.com/wizdom13/WizeStream/blob/pipe/docs/plugins.md)
-- [WizeStream Plugins catalog](https://github.com/wizdom13/WizeStream-Plugins)
+[WizeStream](https://github.com/wizdom13/WizeStream) ·
+[Plugin API and installation guide](https://github.com/wizdom13/WizeStream/blob/pipe/docs/plugins.md) ·
+[Report a plugin issue](https://github.com/wizdom13/PornHub-WizeStream-Plugin/issues)
 
-## Requirements
+## Supported features
 
-- JDK 21.
-- Gradle **9.5.1**, available through the WizeStream application's Gradle wrapper.
-- Android SDK platform **37.0** and Build Tools **36.1.0**, as declared in
-  [gradle.properties](gradle.properties).
-- A `wizestream-plugin-api.jar` exported from a compatible WizeStream checkout.
-- A WizeStream build that includes native plugin support, on Android **7/API 24 or newer**,
-  for installation and testing.
+| Feature | Behavior |
+| --- | --- |
+| Video links | Open watch, `video/show` and embed links; normalize recognized desktop, mobile and language hosts on the `.com` and `.org` domains to stable video IDs. |
+| Search | Search public videos with encoded queries, metadata cards and validated pagination. |
+| Discovery | Browse the public **Videos** listing with pagination. |
+| Playback | Expose advertised progressive MP4, HLS and DASH sources. Resolve `get_media` JSON responses before offering their media URLs to the player. |
+| Player headers | Supply Referer and Origin headers for media sources and manifests. |
+| Metadata | Read titles, thumbnails, uploader names, duration, available counters and structured upload dates. |
+| Captions | Expose the player's `closedCaptionsFile` SRT or VTT track when supplied. |
+| Saved items | Preserve the host-assigned service identity for history and local playlists. |
+| Downloads | Expose progressive MP4 sources when the provider supplies them; no MP4 URL is invented for HLS-only content. |
 
-This standalone repository does **not** include a Gradle wrapper. The commands below use the
-wrapper from a sibling WizeStream checkout. Building the host SDK also requires the components
-listed in WizeStream's [build guide](https://github.com/wizdom13/WizeStream/blob/pipe/BUILDING.md).
+Cards are scoped to the main results container. Duplicate videos and recognized advertisements
+are discarded, and unknown metadata remains unknown. Signed media query parameters are preserved;
+media sources are marked non-cacheable, and extracted information has a five-minute cache lifetime.
 
-Set `ANDROID_HOME` to your Android SDK, or create an untracked `local.properties` in this
-project containing `sdk.dir=/absolute/path/to/android-sdk`. Use forward slashes in a Windows
-properties-file path, for example `sdk.dir=C:/Android/Sdk`. The host checkout needs its own SDK
-configuration if you do not use the environment variable.
+### Current scope
 
-## Build the sample
+Channels, subscriptions, remote playlists, comments, related videos, search suggestions and live
+broadcasts are not implemented. Unsupported capabilities are not advertised, and uploader names
+do not open unsupported channel pages. Account login, premium content and private libraries are
+outside this initial implementation.
 
-Keep these repositories in the same parent directory:
+The parser reads literal player JSON and structured HTML. It does not execute website JavaScript,
+synthesize consent or login cookies, or bypass age verification, geographic restrictions, payment,
+DRM or browser challenges. Removed, restricted and unavailable resources produce extraction errors.
+The provider can change its markup or reject requests from particular networks or regions.
 
-- `WizeStream` — the application and SDK exporter, checked out on `pipe`.
-- `WizeStream-Plugin-Template` — this standalone project.
+## Install
 
-Clone either repository if it is not already present:
+Installation requires a published **signed `.ppp` package** and its matching **`index.json`**.
+A source checkout or the GitHub repository page itself is not an installable plugin repository.
 
-```sh
-git clone --branch pipe https://github.com/wizdom13/WizeStream.git
-git clone https://github.com/wizdom13/WizeStream-Plugin-Template.git
+Once the signed assets are publicly accessible:
+
+1. Obtain the publisher's direct HTTPS `index.json` URL from a published release or the
+   [WizeStream Plugins catalog](https://github.com/wizdom13/WizeStream-Plugins).
+2. In WizeStream, open **Settings → Plugins**, enable plugins, and add that repository URL
+   if it is not already configured.
+3. Check the publisher and install **PornHub**. Its repository entry is marked as NSFW.
+4. Restart WizeStream when prompted, then select **PornHub** as the active service.
+
+After the publisher configures `SIGNING_KEY`, the [release workflow](.github/workflows/release.yml)
+publishes signed packages and an index in the rolling **`repo`** GitHub release. The stable
+installation URL is:
+
+```text
+https://github.com/wizdom13/PornHub-WizeStream-Plugin/releases/download/repo/index.json
 ```
 
-### Windows PowerShell
+**This URL is usable only after the first successful publication and when the release assets
+are accessible without GitHub authentication.** This repository is currently private, so a
+release here does not by itself provide a publicly downloadable plugin repository. Public asset
+access must be arranged separately; the workflow does not change repository visibility.
 
-From that parent directory:
+Ordinary CI artifacts use disposable keys and are **test-only**. Distribution uses the permanent
+publisher key through the release workflow. Inclusion in the shared WizeStream Plugins catalog
+requires a separate catalog update.
 
-```powershell
-Set-Location .\WizeStream
-.\gradlew.bat :app:pluginSdkJar
-$pluginSdkJar = (Resolve-Path .\app\build\outputs\plugin-sdk\wizestream-plugin-api.jar).Path
-.\gradlew.bat -p ..\WizeStream-Plugin-Template "-PpluginSdkJar=$pluginSdkJar" generateSigningKey repositoryIndex
-```
+WizeStream pins the signing key on first installation. Updates must keep both the plugin ID and
+publisher key and increase `versionCode`. Uninstalling does not reset that publisher pin.
+
+## Build and test
+
+### Toolchain
+
+- JDK **21**. CI uses Temurin **21.0.12+8**.
+- Gradle **9.5.1**, using the WizeStream checkout's wrapper.
+- Android SDK platform **37.0** and Build Tools **36.1.0** for the host build.
+- A `wizestream-plugin-api.jar` exported from the pinned WizeStream checkout.
+- Standalone **R8/D8 8.13.19**, resolved automatically by this plugin's Gradle build.
+
+The CI and release host baseline is commit
+[`68432a57853aa2c0ffdbe4f7c163c2fedd01c18e`](https://github.com/wizdom13/WizeStream/commit/68432a57853aa2c0ffdbe4f7c163c2fedd01c18e)
+(WizeStream 1.52.4). The plugin keeps its pinned standalone D8 compiler to support Kotlin **2.3.21**
+metadata. Its Android API and NIO desugaring profile remain aligned with the host SDK.
+
+Set `ANDROID_HOME` to the SDK installation. Alternatively, add an untracked `local.properties`
+containing `sdk.dir=/absolute/path/to/android-sdk` to both projects. On Windows, use forward
+slashes in that properties-file path, for example `sdk.dir=C:/Android/Sdk`.
+
+Keep sibling checkouts named `WizeStream` and `PornHub-WizeStream-Plugin`. This repository uses
+the host wrapper and does not include another Gradle wrapper. Cloning the private plugin
+repository requires your usual authenticated GitHub access.
 
 ### Linux or macOS
 
-From that parent directory:
+From the directory containing both repositories:
 
 ```sh
+git clone --branch pipe https://github.com/wizdom13/WizeStream.git
+git clone https://github.com/wizdom13/PornHub-WizeStream-Plugin.git
+git -C WizeStream checkout 68432a57853aa2c0ffdbe4f7c163c2fedd01c18e
 cd WizeStream
-./gradlew :app:pluginSdkJar
+./gradlew :app:pluginSdkJar -DskipFormatKtlint --max-workers=2 \
+  '-Dorg.gradle.jvmargs=-Xmx4096M --add-opens jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED'
 plugin_sdk_jar="$PWD/app/build/outputs/plugin-sdk/wizestream-plugin-api.jar"
-./gradlew -p ../WizeStream-Plugin-Template "-PpluginSdkJar=$plugin_sdk_jar" generateSigningKey repositoryIndex
+./gradlew -p ../PornHub-WizeStream-Plugin \
+  "-PpluginSdkJar=$plugin_sdk_jar" test pluginPackage
 ```
 
-The exported SDK is `WizeStream/app/build/outputs/plugin-sdk/wizestream-plugin-api.jar`.
-The sample outputs are under **this template's** directory:
+If the repositories already exist, use those checkouts rather than cloning again. Export the
+SDK from the pinned host revision before building the plugin.
 
-- `build/repo/wizestream-example-1.ppp`
-- `build/repo/index.json`
+### Windows PowerShell
 
-The package filename uses `rootProject.name` from [settings.gradle.kts](settings.gradle.kts)
-and the manifest's `versionCode`.
+From the directory containing both repositories, using existing checkouts if available:
 
-If you already have the SDK JAR and Gradle 9.5.1 installed, you can instead build directly
-from this project's root:
+```powershell
+git clone --branch pipe https://github.com/wizdom13/WizeStream.git
+git clone https://github.com/wizdom13/PornHub-WizeStream-Plugin.git
+git -C WizeStream checkout 68432a57853aa2c0ffdbe4f7c163c2fedd01c18e
+Set-Location .\WizeStream
+.\gradlew.bat :app:pluginSdkJar -DskipFormatKtlint --max-workers=2 `
+  '-Dorg.gradle.jvmargs=-Xmx4096M --add-opens jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED'
+if ($LASTEXITCODE -ne 0) {
+    throw "Plugin SDK export failed."
+}
+$pluginSdkJar = (Resolve-Path .\app\build\outputs\plugin-sdk\wizestream-plugin-api.jar).Path
+.\gradlew.bat -p ..\PornHub-WizeStream-Plugin "-PpluginSdkJar=$pluginSdkJar" test pluginPackage
+```
+
+The unsigned package is written to
+`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-1.ppp`.
+The filename uses `versionCode`, not the display version.
+
+### What CI verifies
+
+[CI](.github/workflows/ci.yml) exports the actual SDK from the pinned host, runs **55 JVM fixture
+tests**, compiles Android DEX, and verifies a test-only package signature. The tests cover URL
+identity, catalog parsing and pagination, metadata, media sources, subtitles, request headers,
+and unavailable or restricted responses. All provider responses used by the tests are synthetic;
+no live service response is required.
+
+The `.ppp` packaging check verifies that the archive contains its manifest and DEX and excludes
+replacement copies of host-provided classes. CI uploads the test package and JVM test reports.
+
+**There are no Android emulator jobs in this repository's CI.** Compiling DEX does not establish
+runtime loading compatibility on Android. Loading through the host on API 24 and a minified
+release build, and successful live playback on a real device, remain unverified. Before
+publishing, check the exact signed package in a compatible WizeStream installation: search,
+pagination, permitted public playback, quality selection, supplied subtitles, link opening and
+restricted-resource errors.
+
+## Sign and publish a release
+
+### Automatic GitHub releases
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) publishes after **PornHub plugin
+CI** succeeds for a push to `main`. It checks out that exact commit and uses the same pinned host
+SDK, JDK, standalone R8/D8 version and Android compiler profile as CI. Pull requests run CI and
+workflow validation; publication and the signing secret are restricted to eligible main-branch
+release runs.
+
+The release workflow builds and tests the plugin, signs it through `repositoryIndex`, and creates
+or updates the rolling **`repo`** release. It retains older versioned `.ppp` assets, uploads the
+current package first, and updates `index.json` last. An identical package can be reused on a
+rerun. A changed package requires a higher `versionCode`; publisher-key changes and version
+rollbacks are rejected. A newly created release remains a draft until its assets are uploaded.
+
+Only one repository secret is required: **`SIGNING_KEY`**, containing the **Base64 encoding of an
+Ed25519 PKCS#8 DER private key**. The workflow derives the matching X.509 DER public key, verifies
+the generated package signature, and removes temporary key files afterward. Its GitHub token is
+supplied automatically; no personal access token is needed for publication.
+
+### 1. Create the persistent publisher key
+
+Use **JDK 21** and sibling checkouts named `WizeStream` and `PornHub-WizeStream-Plugin`. Key
+generation uses the host Gradle wrapper but does **not** require an exported plugin SDK or Android
+SDK. First-time Gradle and plugin downloads still require network access.
+
+Run these commands from the **PornHub-WizeStream-Plugin checkout**. They store the key pair
+outside the repository. If this plugin already has a publisher key pair, reuse those files and
+adjust the paths instead of creating another identity. `generateSigningKey` reuses a complete
+existing pair and refuses to replace an incomplete pair.
+
+#### Windows PowerShell
+
+```powershell
+$pornhubKeyDir = Join-Path $env:USERPROFILE "WizeStream-signing\PornHub"
+$pornhubPrivateKey = Join-Path $pornhubKeyDir "signing-key.pk8"
+$pornhubPublicKey = Join-Path $pornhubKeyDir "public-key.der"
+
+..\WizeStream\gradlew.bat -p . `
+  "-PpluginSigningKey=$pornhubPrivateKey" `
+  "-PpluginPublicKey=$pornhubPublicKey" `
+  generateSigningKey
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Signing key creation failed."
+}
+
+[Convert]::ToBase64String(
+    [IO.File]::ReadAllBytes($pornhubPrivateKey)
+) | Set-Clipboard
+```
+
+The final command copies the exact secret value to your clipboard without printing it.
+
+#### Linux or macOS
 
 ```sh
-gradle "-PpluginSdkJar=/absolute/path/wizestream-plugin-api.jar" generateSigningKey repositoryIndex
+pornhub_key_dir="$HOME/WizeStream-signing/PornHub"
+
+../WizeStream/gradlew -p . \
+  "-PpluginSigningKey=$pornhub_key_dir/signing-key.pk8" \
+  "-PpluginPublicKey=$pornhub_key_dir/public-key.der" \
+  generateSigningKey
 ```
 
-Always supply `pluginSdkJar` for a standalone checkout. The build's default relative SDK path
-is intended for the template embedded inside the WizeStream application repository.
+After key generation succeeds, encode the private file:
 
-## Keep the signing identity
-
-`generateSigningKey` creates `signing-key.pk8` and `public-key.der` in this project on the first
-run. It reuses an existing complete pair and refuses to replace an incomplete pair. Both files
-are excluded by [.gitignore](.gitignore); back them up before publishing.
-
-The private key is PKCS#8 DER and the public file is X.509 DER. To keep them elsewhere, supply
-both `-PpluginSigningKey=/private/path/key.pk8` and
-`-PpluginPublicKey=/private/path/public.der` to the build commands.
-
-For each update, retain the plugin ID and key pair, increase `versionCode`, update
-`versionName`, and rerun the same packaging command with **`repositoryIndex` only**.
-`repositoryIndex` builds the package, signs its raw 32-byte SHA-256 digest using Ed25519,
-verifies that signature, and writes the digest, signature and raw public key into the index.
-
-WizeStream pins the publisher key on first installation. Updates must keep that key and use a
-higher version code. Uninstalling preserves the publisher pin; generating a new pair is not a
-supported way to update an existing plugin.
-
-## Implement your service
-
-1. Choose a permanent, unique `pluginId` and a service name WizeStream does not already provide.
-2. Rename the package/classes in [ExamplePlugin.kt](src/main/kotlin/org/example/wizestream/demo/ExamplePlugin.kt)
-   and [ExampleService.kt](src/main/kotlin/org/example/wizestream/demo/ExampleService.kt).
-3. Update `entryClass`, `name`, author and description in
-   [plugin.json](src/main/resources/plugin.json). Update `rootProject.name` for your package filename.
-4. Implement the marked URL handlers and extractors. Use the host downloader and extractor
-   result types, and advertise only the capabilities your service implements.
-5. Set the actual host/device requirements, then test the resulting package against compatible
-   WizeStream builds before publishing it.
-
-The public entry class must have a no-argument constructor and implement `WizeStreamPlugin`.
-Its `createService(serviceId, context)` receives a `WizeStreamPluginContext`.
-Pass `serviceId` unchanged to the `StreamingService` constructor and make the service name match
-the manifest. The host derives the stable service identity from `pluginId`, so changing the ID
-would separate the plugin from its existing subscriptions, history and playlists.
-
-`WizeStreamPluginContext` exposes the plugin identity, host version, a captured profile UUID
-string, and `getPreferences()`. Use those preferences for settings and optional credentials.
-They belong to the profile that created the service. Installation, updates and profile changes
-with loaded plugins require an app restart. Plugins run inside the app process; these APIs
-provide profile-aware behavior, not a sandbox for untrusted code.
-
-## Native manifest
-
-The sample's core configuration is:
-
-```json
-{
-  "pluginId": "org.example.wizestream.demo",
-  "name": "WizeStream Example",
-  "versionCode": 1,
-  "versionName": "1.0.0",
-  "host": "wizestream",
-  "apiVersion": "2.0",
-  "minHostVersionCode": 1051000,
-  "minAndroidSdk": 24,
-  "requiredCapabilities": ["profile-preferences"],
-  "author": "Your name",
-  "entryClass": "org.example.wizestream.demo.ExamplePlugin"
-}
+```sh
+base64 < "$pornhub_key_dir/signing-key.pk8" | tr -d '\r\n'
 ```
 
-| Field | Native WizeStream behavior |
-| --- | --- |
-| `pluginId` | Stable reverse-domain ID, at most 128 characters. The parser accepts `^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$`. |
-| `name` | Must match the returned `StreamingService` name. |
-| `versionCode` | Positive integer for this template; increase it for every published update. |
-| `versionName` | Human-readable release version. |
-| `host` | Explicitly `"wizestream"`. Omitting it selects the separate PipePipe-compatible contract. |
-| `apiVersion` | `"2.0"` for this template. Its entry interface is `WizeStreamPlugin`. |
-| `minHostVersionCode` | Minimum WizeStream version code containing the API your plugin requires. |
-| `minAndroidSdk` | Device requirement, at least 24 for external plugins. Raise it if your service needs newer Android APIs. |
-| `requiredCapabilities` | Host features required before loading. Native API 2.0 currently exposes `profile-preferences`; unknown required capabilities are rejected. |
-| `author` | Required publisher name. |
-| `entryClass` | Fully qualified public class implementing `WizeStreamPlugin`, with a no-argument constructor. |
-| `description` | Optional service description. |
-| `issueUrl` | Optional HTTPS issue-tracker URL, at most 512 characters. |
-| `icon` | Optional package-relative image path without `..`. Use a square PNG/WebP with a transparent background, at most 512 pixels per edge. |
-| `settings` | Optional `string` or `boolean` preferences with a key, title, optional summary and default value. |
-| `login` | Optional cookie metadata containing an HTTPS `url`, required cookie name and preference `key` (default `login_cookies`). See below for the host UI. |
-| `theme` | Optional color metadata is parsed for format compatibility; WizeStream retains its own application theme. |
+Copy the resulting Base64 value. Encode the **private** file's binary bytes directly; use neither
+the public key, a file path nor PEM header/footer text as the secret value.
 
-The sample's `minHostVersionCode: 1051000` identifies the development baseline. Before releasing
-a plugin, set it to the first published host version that actually contains the API you use.
-An older APK does not gain plugin support just because its version code matches that value.
+### 2. Add the GitHub repository secret
 
-### Settings and optional login cookies
+Open this repository's **Settings → Secrets and variables → Actions → Secrets → New repository
+secret**. Set the name to **`SIGNING_KEY`**, paste the Base64 value, and click **Add secret**.
+The workflow reads it as `${{ secrets.SIGNING_KEY }}`; the secret's name is `SIGNING_KEY`.
 
-Manifest settings are rendered by the host and stored through `context.getPreferences()`;
-`addChangeListener` is available for changes. For cookie authentication, WizeStream exposes
-**Login cookies** and **Clear login cookies**. Users supply a cookie header manually; the
-settings screen shows the required login URL/cookie name and hides the saved value in its summary.
-Changes require a restart because a service may cache its configuration.
+If your GitHub CLI is already authenticated, this Linux/macOS alternative stores the value
+directly without printing it:
 
-This host does not open an automatic plugin login WebView or share its WebView cookie store.
-Do not implement login-dependent behavior based on those assumptions. Cookie settings remain
-separate per profile, and deleting a profile clears its plugin preferences.
-
-## Compiler and dependency compatibility
-
-Keep `pluginMinSdk=23` and the pinned `desugar_jdk_libs_configuration_nio` profile in
-[build.gradle.kts](build.gradle.kts). They match the host's compiled SDK signatures and date/time
-APIs. This compiler profile is separate from the manifest's Android 7/API 24 installation minimum.
-If your plugin needs a newer device API, raise `minAndroidSdk` in its manifest.
-
-The SDK, Kotlin standard library, nanojson, jsoup and commons-lang3 are `compileOnly` because
-the host supplies them. Do not bundle replacement copies of these classes or depend on internal
-WizeStream activities, database classes or player implementations. Additional packaged libraries
-need deliberate dependency/namespace handling and their applicable license notices.
-
-The `.ppp` is a ZIP containing the root `plugin.json`, JVM classes/resources and Android DEX.
-The packaging task rejects host-class namespaces. Test on your minimum supported Android
-version and a minified release host; a debug host alone may hide binary-compatibility problems.
-
-## Publish to a repository
-
-1. Replace all sample metadata and unfinished extraction methods.
-2. Generate and test the exact `.ppp` you will distribute.
-3. Upload `build/repo/index.json` and the generated `.ppp` together to an HTTPS location,
-   such as assets in the same GitHub release.
-4. Give users the direct JSON URL. A GitHub `/blob/` page is HTML, not a repository index.
-5. To request inclusion in [WizeStream Plugins](https://github.com/wizdom13/WizeStream-Plugins),
-   submit the generated plugin entry and link its source code. Follow that catalog's contribution rules.
-
-The generated index contains a **relative** `package` filename. It works when the index and
-package share the same URL directory. When copying an entry into a different catalog, replace
-that field with the package's absolute HTTPS download URL while retaining the generated digest,
-signature, public key and compatibility fields. Do not edit the signed package after generating
-the index; rebuild and sign again if any package bytes change.
-
-The WizeStream Plugins catalog's direct JSON URL is:
-
-```text
-https://raw.githubusercontent.com/wizdom13/WizeStream-Plugins/main/index.json
+```sh
+base64 < "$pornhub_key_dir/signing-key.pk8" |
+  tr -d '\r\n' |
+  gh secret set SIGNING_KEY --app actions --repo wizdom13/PornHub-WizeStream-Plugin
 ```
 
-Its catalog can include native API 2.0 plugins and compatible PipePipe plugins. This template
-builds the native contract; do not change only `host` or `apiVersion` to claim compatibility with
-a different host. Check the [host guide](https://github.com/wizdom13/WizeStream/blob/pipe/docs/plugins.md)
-for supported contracts and installation behavior.
+Keep a secure backup of **both** key files and reuse this pair for every release. Keep the private
+key and its Base64 value out of commits, issues and chat messages. CI's disposable test keys must
+not become the publisher identity.
 
-## License and attribution
+### 3. Publish and update
 
-This template carries **GPL-3.0-or-later** source notices. Preserve [LICENSE](LICENSE) and the
-source attribution when adapting it. The packaging format and service skeleton derive from the
+Merge the release workflow into `main` and configure the secret. A successful CI run for a push
+to `main` then starts publication automatically. To publish after adding the secret or recover
+from a failed publication, open **Actions → Release PornHub plugin → Run workflow** and select
+**main**. Manual publication also requires successful **PornHub plugin CI** for the current main
+commit.
+
+For a changed plugin, increase `versionCode` and update `versionName` in
+`src/main/resources/plugin.json` before merging. Retain the same `SIGNING_KEY`. The workflow skips
+superseded commits and serializes publishers so concurrent runs cannot replace the index out of
+order. Missing or malformed signing material stops publication.
+
+If replacing the index fails, the workflow attempts to restore the previous index and saves that
+previous signed index as a workflow artifact for recovery. Published package assets are never
+overwritten or deleted. A rerun can remove a verified empty `starter` placeholder left by a
+failed upload; an incomplete index can be recovered this way only while its release is still
+a draft.
+
+Public installation additionally requires publicly accessible release assets, as described in
+[Install](#install). Publication does not change this repository's private visibility.
+
+### Local signing and publishing
+
+You can also build a signed repository locally. From the WizeStream checkout, after exporting the
+SDK, use the same permanent key pair. For example, with the Linux/macOS key location above:
+
+```sh
+plugin_sdk_jar="$PWD/app/build/outputs/plugin-sdk/wizestream-plugin-api.jar"
+pornhub_key_dir="$HOME/WizeStream-signing/PornHub"
+./gradlew -p ../PornHub-WizeStream-Plugin \
+  "-PpluginSdkJar=$plugin_sdk_jar" \
+  "-PpluginSigningKey=$pornhub_key_dir/signing-key.pk8" \
+  "-PpluginPublicKey=$pornhub_key_dir/public-key.der" \
+  repositoryIndex
+```
+
+The private key is PKCS#8 DER; the public key file is X.509 DER. For subsequent releases, retain
+the same keys, increase the manifest's `versionCode`, update `versionName`, and run
+`repositoryIndex` without generating another identity.
+
+The build signs the **raw 32-byte SHA-256 digest** of the exact package with Ed25519 and verifies
+the signature before producing `build/repo/index.json`. The index preserves **`nsfw: true`**.
+Publish the index and matching `.ppp` together in the same HTTPS directory. The index uses a
+relative package filename. To copy its entry into another catalog, replace only the package
+location with the absolute HTTPS download URL while retaining the generated digest, signature,
+public key, NSFW flag and compatibility fields. Do not modify a signed archive.
+
+## Implementation notes
+
+- Kotlin sources live under `org.wizestream.plugin.pornhub`; the native entry class is
+  `PornHubPlugin` and the service name is **PornHub**.
+- Preserve `org.wizestream.plugin.pornhub` as the plugin ID so history and saved local playlist
+  items continue to refer to the same service. The host assigns the numeric service ID.
+- Keep `pluginMinSdk=23`, standalone R8/D8 **8.13.19** and the pinned NIO desugaring configuration.
+  The independent installation minimum remains Android API 24.
+- The SDK, Kotlin standard library, nanojson, jsoup and commons-lang3 remain `compileOnly`.
+  JVM tests add them to the test runtime; the distributed `.ppp` contains no replacement host classes.
+- The plugin uses the host downloader and does not store credentials or add a separate networking
+  client. Native API 2.0 provides profile context and preferences for future features that need them.
+
+## Source references and license
+
+- [Pinned WizeStream native plugin guide](https://github.com/wizdom13/WizeStream/blob/68432a57853aa2c0ffdbe4f7c163c2fedd01c18e/docs/plugins.md)
+- [WizeStream Plugin Template](https://github.com/wizdom13/WizeStream-Plugin-Template)
+- [yt-dlp provider extractor](https://github.com/yt-dlp/yt-dlp/blob/83564f85db7507486fbe3b0d0e72498f31ab0600/yt_dlp/extractor/pornhub.py)
+- [Pornhub.js search parser](https://github.com/pionxzh/Pornhub.js/blob/7c0f6a85aeb5ab108cc66c29242d4fa7a0310039/src/scrapers/search/video.ts)
+
+The provider sources document the public data shapes used to design the independent Kotlin
+parser. Fixtures contain only synthetic neutral content.
+
+**GPL-3.0-or-later.** See [LICENSE](LICENSE). This repository started from the WizeStream Plugin
+Template. The packaging format and original service skeleton derive from the
 [PipePipe Plugin Template](https://github.com/InfinityLoop1308/PipePipePluginTemplate/tree/91950887dfd173263ecacfc466437a33777d242d);
-the native SDK contract and signing tasks are WizeStream additions.
+native SDK integration and signing are WizeStream additions. This community plugin is not an
+official PornHub product.

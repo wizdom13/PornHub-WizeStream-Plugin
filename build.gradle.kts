@@ -40,9 +40,18 @@ kotlin {
 
 val sdkJar = file(
     providers.gradleProperty("pluginSdkJar")
-        .orElse("../app/build/outputs/plugin-sdk/wizestream-plugin-api.jar").get()
+        .orElse("../WizeStream/app/build/outputs/plugin-sdk/wizestream-plugin-api.jar").get()
 )
 val desugarConfig by configurations.creating
+val d8Compiler by configurations.creating {
+    isCanBeConsumed = false
+}
+
+// Run fixture tests against the actual exported host API. These libraries remain
+// compile-only in production and are never copied into the plugin package.
+configurations.testImplementation {
+    extendsFrom(configurations.compileOnly.get())
+}
 
 dependencies {
     // The app supplies these classes. Keep them out of the plugin archive and DEX.
@@ -52,7 +61,11 @@ dependencies {
     compileOnly("org.jsoup:jsoup:${property("jsoupVersion")}")
     compileOnly("org.apache.commons:commons-lang3:${property("lang3Version")}")
     compileOnly("com.github.spotbugs:spotbugs-annotations:${property("spotbugsVersion")}")
+    testImplementation("junit:junit:4.13.2")
     desugarConfig("com.android.tools:desugar_jdk_libs_configuration_nio:${property("desugarJdkLibsVersion")}")
+    // Build Tools 36.1.0 bundles D8 9.0.3-dev, which cannot rewrite Kotlin 2.3 metadata.
+    // Pin a standalone compiler supported by https://developer.android.com/build/kotlin-support.
+    d8Compiler("com.android.tools:r8:${property("r8Version")}")
 }
 
 val manifestFile = file("src/main/resources/plugin.json")
@@ -61,7 +74,7 @@ val manifestFile = file("src/main/resources/plugin.json")
 val pluginManifest = JsonSlurper().parse(manifestFile) as Map<String, Any?>
 val pluginVersionCode = (pluginManifest["versionCode"] as Number).toInt()
 require(pluginManifest["host"] == "wizestream" && pluginManifest["apiVersion"] == "2.0") {
-    "This template targets native WizeStream API 2.0"
+    "PornHub targets native WizeStream API 2.0"
 }
 require(pluginVersionCode > 0) { "versionCode must be a positive integer" }
 
@@ -75,6 +88,12 @@ val verifySdk by tasks.registering {
 }
 tasks.named("compileKotlin") { dependsOn(verifySdk) }
 tasks.named("compileJava") { dependsOn(verifySdk) }
+
+tasks.test {
+    useJUnit()
+    maxParallelForks = 1 // NewPipe owns one process-wide downloader.
+    testLogging { events("failed", "skipped") }
+}
 
 tasks.withType<Jar>().configureEach {
     isPreserveFileTimestamps = false
@@ -93,16 +112,21 @@ val extractDesugarConfig by tasks.registering(Copy::class) {
 val pluginJar = tasks.named<Jar>("jar").flatMap { it.archiveFile }
 val dexDirectory = layout.buildDirectory.dir("dex")
 val pluginMinSdk = providers.gradleProperty("pluginMinSdk").map(String::toInt)
-val pluginBuildToolsVersion = providers.gradleProperty("buildToolsVersion")
 val pluginAndroidPlatform = providers.gradleProperty("androidPlatform")
 val pluginRepositoryName = providers.gradleProperty("repositoryName")
 
-val dex by tasks.registering(Exec::class) {
+val dex by tasks.registering(JavaExec::class) {
     dependsOn(tasks.named("jar"), extractDesugarConfig)
+    classpath = d8Compiler
+    mainClass.set("com.android.tools.r8.D8")
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    })
+    maxHeapSize = "1g"
     inputs.file(pluginJar)
     inputs.files(configurations.compileClasspath)
     inputs.property("minSdk", pluginMinSdk)
-    inputs.property("buildTools", pluginBuildToolsVersion)
+    inputs.property("r8Version", providers.gradleProperty("r8Version"))
     inputs.property("androidPlatform", pluginAndroidPlatform)
     inputs.file(layout.buildDirectory.file("desugar/desugar.json"))
     outputs.dir(dexDirectory)
@@ -115,17 +139,15 @@ val dex by tasks.registering(Exec::class) {
             ?: providers.environmentVariable("ANDROID_HOME").orNull
             ?: providers.environmentVariable("ANDROID_SDK_ROOT").orNull
             ?: error("Set sdk.dir in local.properties or ANDROID_HOME to your Android SDK")
-        val d8Name = if (System.getProperty("os.name").startsWith("Windows")) "d8.bat" else "d8"
-        val d8 = File(sdkRoot, "build-tools/${pluginBuildToolsVersion.get()}/$d8Name")
         val androidJar = File(sdkRoot, "platforms/${pluginAndroidPlatform.get()}/android.jar")
-        require(d8.isFile && androidJar.isFile) {
-            "Install Android ${pluginAndroidPlatform.get()} and build-tools ${pluginBuildToolsVersion.get()}"
+        require(androidJar.isFile) {
+            "Install Android ${pluginAndroidPlatform.get()}"
         }
         val output = dexDirectory.get().asFile
         project.delete(output)
         output.mkdirs()
         val command = mutableListOf(
-            d8.absolutePath, "--release", "--min-api", pluginMinSdk.get().toString(),
+            "--release", "--min-api", pluginMinSdk.get().toString(),
             "--lib", androidJar.absolutePath,
             "--desugared-lib", layout.buildDirectory.file("desugar/desugar.json").get().asFile.absolutePath,
             "--output", output.absolutePath
@@ -134,7 +156,7 @@ val dex by tasks.registering(Exec::class) {
             command += listOf("--classpath", it.absolutePath)
         }
         command += pluginJar.get().asFile.absolutePath
-        commandLine(command)
+        setArgs(command)
     }
 }
 
@@ -248,7 +270,7 @@ tasks.register("repositoryIndex") {
         entry["sha256"] = digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
         entry["signature"] = Base64.getEncoder().encodeToString(signature)
         entry["publicKey"] = Base64.getEncoder().encodeToString(encodedPublic.takeLast(32).toByteArray())
-        entry["nsfw"] = false
+        entry["nsfw"] = true
         val index = linkedMapOf("formatVersion" to 1, "name" to pluginRepositoryName.get(), "plugins" to listOf(entry))
         val destination = layout.buildDirectory.file("repo/index.json").get().asFile
         destination.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(index)) + "\n")

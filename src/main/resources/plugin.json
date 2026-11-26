@@ -1,23 +1,15 @@
 {
-  "pluginId": "org.example.wizestream.demo",
-  "name": "WizeStream Example",
+  "pluginId": "org.wizestream.plugin.pornhub",
+  "name": "PornHub",
   "versionCode": 1,
   "versionName": "1.0.0",
   "host": "wizestream",
   "apiVersion": "2.0",
-  "minHostVersionCode": 1051000,
+  "minHostVersionCode": 1052002,
   "minAndroidSdk": 24,
-  "requiredCapabilities": ["profile-preferences"],
-  "author": "Your name",
-  "entryClass": "org.example.wizestream.demo.ExamplePlugin",
-  "description": "Developer skeleton; replace its TODO extractors before publishing.",
-  "settings": [
-    {
-      "key": "base_url",
-      "type": "string",
-      "title": "Base URL",
-      "summary": "The endpoint used by this service",
-      "default": "https://example.invalid/wizestream-demo"
-    }
-  ]
+  "requiredCapabilities": [],
+  "author": "WizeStream",
+  "entryClass": "org.wizestream.plugin.pornhub.PornHubPlugin",
+  "description": "Native WizeStream service for public PornHub videos. Adults only.",
+  "issueUrl": "https://github.com/wizdom13/PornHub-WizeStream-Plugin/issues"
 }

@@ -1,0 +1,291 @@
+name: Release PornHub plugin
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/release.yml]
+  workflow_run:
+    workflows: [PornHub plugin CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WIZESTREAM_HOST_COMMIT: 68432a57853aa2c0ffdbe4f7c163c2fedd01c18e
+  RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  validate-workflow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+
+      - name: Check workflow syntax and embedded shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          lint_dir="$RUNNER_TEMP/actionlint"
+          mkdir -p "$lint_dir"
+          cd "$lint_dir"
+          curl --fail --silent --show-error --location \
+            --output actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          curl --fail --silent --show-error --location \
+            --output checksums.txt \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt
+          checksum=$(awk '$2 == "actionlint_1.7.12_linux_amd64.tar.gz" {print $1}' checksums.txt)
+          test -n "$checksum"
+          printf '%s  actionlint.tar.gz\n' "$checksum" | sha256sum --check --status
+          tar -xzf actionlint.tar.gz actionlint
+          cd "$GITHUB_WORKSPACE"
+          "$lint_dir/actionlint" -color
+
+  publish:
+    needs: validate-workflow
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: pornhub-plugin-release
+      cancel-in-progress: false
+    env:
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: repo
+    steps:
+      - name: Require successful CI on the current main commit
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$RELEASE_SHA" != "$main_sha" ]]; then
+            echo 'Skipping a superseded main commit.'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ci_result=$(gh api \
+            "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=main&event=push&head_sha=$RELEASE_SHA&per_page=1" \
+            --jq '.workflow_runs[0].conclusion // "missing"')
+          if [[ "$ci_result" != success ]]; then
+            echo '::error::The current main commit must pass PornHub plugin CI before publication.'
+            exit 1
+          fi
+          if [[ -z "$SIGNING_KEY" ]]; then
+            echo '::error::Add the SIGNING_KEY repository secret containing Base64-encoded Ed25519 PKCS#8 DER. See README.'
+            exit 1
+          fi
+          echo 'publish=true' >> "$GITHUB_OUTPUT"
+
+      - name: Check out the tested plugin commit
+        if: steps.source.outputs.publish == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          path: plugin
+          persist-credentials: false
+
+      - name: Check out the pinned WizeStream host
+        if: steps.source.outputs.publish == 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: wizdom13/WizeStream
+          ref: ${{ env.WIZESTREAM_HOST_COMMIT }}
+          path: host
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        if: steps.source.outputs.publish == 'true'
+        with:
+          java-version: 21.0.12+8.0.LTS
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v6
+        if: steps.source.outputs.publish == 'true'
+        with:
+          cache-read-only: true
+
+      - name: Install the host Android compiler profile
+        if: steps.source.outputs.publish == 'true'
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.1.0"
+
+      - name: Export the host plugin SDK
+        if: steps.source.outputs.publish == 'true'
+        working-directory: host
+        run: >-
+          ./gradlew :app:pluginSdkJar --stacktrace -DskipFormatKtlint --max-workers=2
+          '-Dorg.gradle.jvmargs=-Xmx4096M --add-opens jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED'
+
+      - name: Test and build the release package
+        if: steps.source.outputs.publish == 'true'
+        working-directory: host
+        run: >-
+          ./gradlew -p ../plugin
+          "-PpluginSdkJar=$GITHUB_WORKSPACE/host/app/build/outputs/plugin-sdk/wizestream-plugin-api.jar"
+          test pluginPackage --stacktrace --max-workers=2
+
+      - name: Restore the persistent signing key
+        if: steps.source.outputs.publish == 'true'
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/pornhub-release-key.pk8"
+          openssl pkey -inform DER -in "$RUNNER_TEMP/pornhub-release-key.pk8" \
+            -pubout -outform DER -out "$RUNNER_TEMP/pornhub-release-public.der"
+
+      - name: Sign the package and generate its index
+        if: steps.source.outputs.publish == 'true'
+        working-directory: host
+        run: >-
+          ./gradlew -p ../plugin
+          "-PpluginSdkJar=$GITHUB_WORKSPACE/host/app/build/outputs/plugin-sdk/wizestream-plugin-api.jar"
+          "-PpluginSigningKey=$RUNNER_TEMP/pornhub-release-key.pk8"
+          "-PpluginPublicKey=$RUNNER_TEMP/pornhub-release-public.der"
+          repositoryIndex --stacktrace --max-workers=2 --no-configuration-cache
+
+      - name: Publish the signed package and index
+        if: steps.source.outputs.publish == 'true'
+        working-directory: plugin/build/repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$RELEASE_SHA" != "$main_sha" ]]; then
+            echo 'Skipping publication because main advanced during the build.'
+            exit 0
+          fi
+
+          package_name=$(jq -er '.plugins[0].package' index.json)
+          package_sha=$(jq -er '.plugins[0].sha256' index.json)
+          [[ "$package_name" =~ ^pornhub-wizestream-[1-9][0-9]*\.ppp$ ]]
+          [[ "$package_sha" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  %s\n' "$package_sha" "$package_name" | sha256sum --check --status
+
+          previous="$RUNNER_TEMP/pornhub-previous-release"
+          mkdir -p "$previous"
+          # Listing releases distinguishes an absent release from an API/authentication failure.
+          gh api "repos/$GH_REPO/releases?per_page=100" --paginate \
+            --jq '.[] | select(.tag_name == "repo")' > "$previous/release.json"
+          printf '[]\n' > "$previous/assets.json"
+          remove_empty_starter() {
+            local asset_name="$1"
+            local asset_id
+            asset_id=$(jq -r --arg name "$asset_name" \
+              '.[] | select(.name == $name and .state == "starter") | .id' "$previous/assets.json")
+            if [[ -z "$asset_id" ]]; then
+              return 0
+            fi
+            gh api "repos/$GH_REPO/releases/assets/$asset_id" > "$previous/asset.json"
+            if ! jq -e --arg name "$asset_name" \
+              '.name == $name and .state == "starter" and .size == 0' "$previous/asset.json" > /dev/null; then
+              echo '::error::An incomplete release asset changed or contains data; it will not be deleted.'
+              return 1
+            fi
+            gh api --method DELETE "repos/$GH_REPO/releases/assets/$asset_id"
+            jq --argjson id "$asset_id" 'map(select(.id != $id))' "$previous/assets.json" > "$previous/assets-new.json"
+            mv "$previous/assets-new.json" "$previous/assets.json"
+          }
+          if [[ -s "$previous/release.json" ]]; then
+            release_id=$(jq -er '.id' "$previous/release.json")
+            gh api "repos/$GH_REPO/releases/$release_id/assets?per_page=100" --paginate \
+              | jq -s 'add' > "$previous/assets.json"
+            if jq -e 'any(.[]; .name == "index.json" and .state == "starter")' "$previous/assets.json" > /dev/null; then
+              if [[ $(jq -r '.draft' "$previous/release.json") != true ]]; then
+                echo '::error::The published index is incomplete. Restore its previous signed index before updating.'
+                exit 1
+              fi
+              remove_empty_starter index.json
+            fi
+            if jq -e 'any(.[]; .name == "index.json")' "$previous/assets.json" > /dev/null; then
+              gh release download "$RELEASE_TAG" --pattern index.json --dir "$previous"
+              if ! jq -e --slurpfile next index.json '
+                .formatVersion == 1 and (.plugins | length) == 1 and
+                .plugins[0].pluginId == $next[0].plugins[0].pluginId and
+                .plugins[0].publicKey == $next[0].plugins[0].publicKey and
+                (.plugins[0].versionCode | type) == "number" and
+                .plugins[0].versionCode <= $next[0].plugins[0].versionCode and
+                (.plugins[0].versionCode != $next[0].plugins[0].versionCode or
+                 (.plugins[0].sha256 == $next[0].plugins[0].sha256 and
+                  .plugins[0].package == $next[0].plugins[0].package))
+              ' "$previous/index.json" > /dev/null; then
+                echo '::error::Publisher identity changed, versionCode decreased, or a published version changed. Restore the publisher key or increase versionCode.'
+                exit 1
+              fi
+            elif [[ $(jq -r '.draft' "$previous/release.json") != true ]]; then
+              echo '::error::The published repo release is missing index.json. Restore its signed index before updating.'
+              exit 1
+            fi
+          fi
+
+          notes="$RUNNER_TEMP/pornhub-release-notes.md"
+          index_url="https://github.com/$GH_REPO/releases/download/$RELEASE_TAG/index.json"
+          printf '%s\n' \
+            '- Signed PornHub packages for native WizeStream API 2.0.' \
+            "- Add this repository URL in WizeStream: $index_url" \
+            "- Current package source: https://github.com/$GH_REPO/commit/$RELEASE_SHA" \
+            '- Older versioned packages remain available for cached indexes.' > "$notes"
+          if [[ ! -s "$previous/release.json" ]]; then
+            gh release create "$RELEASE_TAG" --target "$RELEASE_SHA" \
+              --title 'PornHub plugin repository' --notes-file "$notes" --draft
+          fi
+          # A failed GitHub upload can leave an empty starter placeholder, not a package.
+          remove_empty_starter "$package_name"
+          if jq -e --arg name "$package_name" 'any(.[]; .name == $name)' "$previous/assets.json" > /dev/null; then
+            gh release download "$RELEASE_TAG" --pattern "$package_name" --dir "$previous"
+            if [[ $(sha256sum "$previous/$package_name" | cut -d ' ' -f 1) != "$package_sha" ]]; then
+              echo '::error::A different package already exists for this versionCode. Increase versionCode before publishing.'
+              exit 1
+            fi
+          else
+            gh release upload "$RELEASE_TAG" "$package_name"
+          fi
+          # Keep old packages; only replace the index after the new package is available.
+          if ! gh release upload "$RELEASE_TAG" index.json --clobber; then
+            if [[ -f "$previous/index.json" ]]; then
+              gh release upload "$RELEASE_TAG" "$previous/index.json" --clobber \
+                || echo '::error::Restoring the previous index also failed; recover it from this run backup artifact.'
+            fi
+            exit 1
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest \
+            --title 'PornHub plugin repository' --notes-file "$notes"
+          printf 'Published signed repository: %s\n' "$index_url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve the previous public index if publication fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pornhub-previous-release-index
+          path: ${{ runner.temp }}/pornhub-previous-release/index.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Remove signing key files
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/pornhub-release-key.pk8" "$RUNNER_TEMP/pornhub-release-public.der"
