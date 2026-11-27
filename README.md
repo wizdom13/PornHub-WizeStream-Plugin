@@ -4,7 +4,7 @@ A Kotlin service plugin implementing **native WizeStream plugin API 2.0**. It ad
 to WizeStream's service selector and uses the host's networking, search results, local playlists
 and player.
 
-- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.0** (`versionCode: 1`).
+- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.1** (`versionCode: 2`).
 - **Host:** WizeStream **1.52.2 or newer** (`versionCode: 1052002`), on Android **7/API 24 or newer**.
 - **Contract:** `host: "wizestream"`, `apiVersion: "2.0"`.
 - **Access:** public, anonymous responses; no API key or account credentials are required.
@@ -22,6 +22,7 @@ and player.
 | Video links | Open watch, `video/show` and embed links; normalize recognized desktop, mobile and language hosts on the `.com` and `.org` domains to stable video IDs. |
 | Search | Search public videos with encoded queries, metadata cards and validated pagination. |
 | Discovery | Browse the public **Videos** listing with pagination. |
+| Channels | Open linked model, performer, user and channel profiles from video details and video cards, then browse their public **Videos** tab with pagination. |
 | Playback | Expose advertised progressive MP4, HLS and DASH sources. Resolve `get_media` JSON responses before offering their media URLs to the player. |
 | Player headers | Supply Referer and Origin headers for media sources and manifests. |
 | Metadata | Read titles, thumbnails, uploader names, duration, available counters and structured upload dates. |
@@ -35,10 +36,10 @@ media sources are marked non-cacheable, and extracted information has a five-min
 
 ### Current scope
 
-Channels, subscriptions, remote playlists, comments, related videos, search suggestions and live
-broadcasts are not implemented. Unsupported capabilities are not advertised, and uploader names
-do not open unsupported channel pages. Account login, premium content and private libraries are
-outside this initial implementation.
+Subscription import, remote playlists, comments, related videos, search suggestions and live
+broadcasts are not implemented. Uploader navigation uses published profile links; a name without
+a supported link remains non-clickable. Account login, premium content and private libraries are
+outside this implementation.
 
 The parser reads literal player JSON and structured HTML. It does not execute website JavaScript,
 synthesize consent or login cookies, or bypass age verification, geographic restrictions, payment,
@@ -140,16 +141,17 @@ $pluginSdkJar = (Resolve-Path .\app\build\outputs\plugin-sdk\wizestream-plugin-a
 ```
 
 The unsigned package is written to
-`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-1.ppp`.
+`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-2.ppp`.
 The filename uses `versionCode`, not the display version.
 
 ### What CI verifies
 
-[CI](.github/workflows/ci.yml) exports the actual SDK from the pinned host, runs **55 JVM fixture
-tests**, compiles Android DEX, and verifies a test-only package signature. The tests cover URL
-identity, catalog parsing and pagination, metadata, media sources, subtitles, request headers,
-and unavailable or restricted responses. All provider responses used by the tests are synthetic;
-no live service response is required.
+[CI](.github/workflows/ci.yml) exports the actual SDK from the pinned host, runs JVM fixture
+tests, compiles Android DEX, and verifies a test-only package signature. The tests cover URL
+identity, uploader navigation, channel metadata and video tabs, catalog parsing and pagination,
+media sources, subtitles, request headers, and unavailable or restricted responses. Pagination
+is also tested with a fresh extractor, matching how the host loads subsequent channel pages.
+All provider responses used by the tests are synthetic; no live service response is required.
 
 The `.ppp` packaging check verifies that the archive contains its manifest and DEX and excludes
 replacement copies of host-provided classes. CI uploads the test package and JVM test reports.
@@ -158,8 +160,9 @@ replacement copies of host-provided classes. CI uploads the test package and JVM
 runtime loading compatibility on Android. Loading through the host on API 24 and a minified
 release build, and successful live playback on a real device, remain unverified. Before
 publishing, check the exact signed package in a compatible WizeStream installation: search,
-pagination, permitted public playback, quality selection, supplied subtitles, link opening and
-restricted-resource errors.
+pagination, channel opening from video details and cards, further pages of channel videos,
+permitted public playback, quality selection, supplied subtitles, link opening and restricted-resource
+errors.
 
 ## Sign and publish a release
 

@@ -84,6 +84,7 @@ internal class PornHubClient(private val downloader: Downloader) {
         val pageText = visibleDocument.body().text().lowercase(Locale.ROOT)
         val hasPublicStructure = document.getElementById("videoSearchResult") != null ||
             document.getElementById("videoCategory") != null ||
+            PornHubChannelMetadata.hasProfileStructure(document) ||
             document.select("script").any { Regex("\\bflashvars_\\d+\\s*=").containsMatchIn(it.data()) }
         fun visible(selector: String): Boolean = document.select(selector).any { element ->
             !hidden(element) && element.parents().none(::hidden)

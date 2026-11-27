@@ -43,7 +43,7 @@ class PornHubStreamExtractorTest {
         assertEquals(WATCH, info.url)
         assertEquals("Neutral fixture café", info.name)
         assertEquals("Fixture uploader", info.uploaderName)
-        assertEquals("", info.uploaderUrl)
+        assertEquals("https://www.pornhub.com/model/fixture-uploader", info.uploaderUrl)
         assertEquals(125L, info.duration)
         assertEquals(12345L, info.viewCount)
         assertEquals(18, info.ageLimit)
@@ -91,6 +91,55 @@ class PornHubStreamExtractorTest {
         assertFalse(stream.isSupportBulletComments)
         assertTrue(stream.audioStreams.isEmpty())
         assertTrue(stream.videoOnlyStreams.isEmpty())
+    }
+
+    @Test
+    fun uploaderLinksCanonicalizeSupportedProfileAndChannelPages() {
+        network.uploaderHref = "https://de.pornhub.org/channels/fixture-studio/videos?o=mr"
+        val info = StreamInfo.getInfo(service, WATCH)
+        assertEquals("https://www.pornhub.com/channels/fixture-studio", info.uploaderUrl)
+        assertTrue(service.channelLHFactory.acceptUrl(info.uploaderUrl))
+        assertTrue("Host errors: " + info.errors, info.errors.isEmpty())
+    }
+
+    @Test
+    fun uploaderUrlUsesSupportedStructuredAuthorWhenHtmlHasNoLink() {
+        network.uploaderHref = null
+        network.schema = """{"@type":"VideoObject","author":{"@type":"Person","name":"Fixture uploader","url":"/users/fixture_user/videos/public"}}"""
+        assertEquals("https://www.pornhub.com/users/fixture_user", extract().uploaderUrl)
+    }
+
+    @Test
+    fun uploaderNameAloneAndInvalidLinksRemainNonNavigable() {
+        network.schema = """{"@type":"VideoObject","author":{"name":"Fixture uploader"}}"""
+        for (href in listOf(null, "", "#", "javascript:void(0)", "https://unrelated.example.com/model/fixture", "/playlist/42")) {
+            network.uploaderHref = href
+            val stream = extract()
+            assertEquals(href.orEmpty(), "", stream.uploaderUrl)
+            assertEquals("Fixture uploader", stream.uploaderName)
+        }
+        network.uploaderHref = null
+        network.schema = """{"@type":"VideoObject","author":{"name":"Fixture uploader","url":"https://www.pornhub.com.example.com/model/fixture"}}"""
+        assertEquals("", extract().uploaderUrl)
+    }
+
+    @Test
+    fun missingUploaderLinkNeverBorrowsARecommendedVideosUploader() {
+        network.extraHtml = """
+            <aside><div class=usernameWrap>
+              <a href='/model/unrelated-uploader'>Unrelated uploader</a>
+            </div></aside>
+        """.trimIndent()
+        network.schema = """{"@type":"VideoObject","author":{"name":"Fixture uploader"}}"""
+        for (href in listOf(null, "", "#", "javascript:void(0)", "https://unrelated.example.com/model/fixture")) {
+            network.uploaderHref = href
+            val stream = extract()
+            assertEquals("Fixture uploader", stream.uploaderName)
+            assertEquals(href.orEmpty(), "", stream.uploaderUrl)
+        }
+        network.uploaderHref = null
+        network.schema = """{"@type":"VideoObject","author":{"name":"Fixture uploader","url":"/users/fixture_user"}}"""
+        assertEquals("https://www.pornhub.com/users/fixture_user", extract().uploaderUrl)
     }
 
     @Test
@@ -253,6 +302,8 @@ class PornHubStreamExtractorTest {
         var latestUrl = WATCH
         var canonical = WATCH
         var title = "Neutral fixture café"
+        var uploaderHref: String? = "/model/fixture-uploader"
+        var extraHtml = ""
         var overrideHtml: String? = null
         var showStats = true
         var schema = """{"@type":"VideoObject","description":"Synthetic fixture description","uploadDate":"2026-01-02T03:04:05Z"}"""
@@ -292,7 +343,8 @@ class PornHubStreamExtractorTest {
             <link rel="canonical" href="$canonical">
             <script type="application/ld+json">$schema</script>
             </head><body>
-            <div class="userInfoBlock"><div class="usernameWrap"><a>Fixture uploader</a></div></div>
+            <div class="userInfoBlock"><div class="usernameWrap"><a ${uploaderHref?.let { "href='$it'" }.orEmpty()}>Fixture uploader</a></div></div>
+            $extraHtml
         """ + (if (showStats) """<div class="views"><span class="count">12,345</span></div>
             <span class="votesUp">90</span><span class="votesDown">2</span>""" else "") +
             "<script>var flashvars_42 = " + JsonWriter.string(player) + ";</script></body></html>"

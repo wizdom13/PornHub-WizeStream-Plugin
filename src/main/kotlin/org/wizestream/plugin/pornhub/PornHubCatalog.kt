@@ -3,7 +3,9 @@ package org.wizestream.plugin.pornhub
 
 import java.net.URI
 import java.net.URLDecoder
+import java.net.URLEncoder
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 import org.schabi.newpipe.extractor.ListExtractor.InfoItemsPage
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.exceptions.ParsingException
@@ -18,10 +20,7 @@ internal object PornHubCatalog {
         serviceId: Int,
         containerId: String
     ): InfoItemsPage<StreamInfoItem> {
-        val finalUrl = validateContinuation(document.location().ifBlank { pageUrl }, pageUrl, minimumPage = 1)
-        if (pageNumber(parameters(URI(finalUrl))) != pageNumber(parameters(URI(pageUrl)))) {
-            throw ParsingException("PornHub redirected the requested listing page")
-        }
+        validatePage(document, pageUrl)
         val container = document.getElementById(containerId)
         if (container == null) {
             if (document.selectFirst(".noResults, .no-results, .no_results, #noResults") != null) {
@@ -29,10 +28,60 @@ internal object PornHubCatalog {
             }
             throw ParsingException("PornHub returned an unrecognized video listing")
         }
+        return parseCards(container, "li.videoblock", serviceId, nextPage(document, pageUrl))
+    }
 
+    /** Profile lists have different containers from search and the general video catalog. */
+    fun parseChannel(
+        document: Document,
+        pageUrl: String,
+        serviceId: Int,
+        channelId: String
+    ): InfoItemsPage<StreamInfoItem> {
+        val finalUrl = validateChannelContinuation(document.location().ifBlank { pageUrl }, pageUrl, minimumPage = 1)
+        if (pageNumber(parameters(URI(finalUrl))) != pageNumber(parameters(URI(pageUrl)))) {
+            throw ParsingException("PornHub redirected the requested channel listing page")
+        }
+        document.selectFirst("link[rel=canonical][href]")?.absUrl("href")?.takeIf(String::isNotBlank)?.let {
+            if (!PornHubUrls.sameChannel(channelId, PornHubUrls.channelId(it))) {
+                throw ParsingException("PornHub returned a different channel video listing")
+            }
+        }
+        val container = if (channelId.startsWith("channels/")) {
+            document.getElementById("showAllChanelVideos")
+        } else {
+            document.getElementById("mostRecentVideosSection") ?: document.selectFirst("div.profileVids")
+        }
+        if (container == null) {
+            if (PornHubChannelMetadata.hasProfileStructure(document) &&
+                document.selectFirst(".noResults, .no-results, .no_results, #noResults") != null
+            ) return InfoItemsPage.emptyPage()
+            throw ParsingException("PornHub returned an unrecognized channel video listing")
+        }
+        val cards = if (channelId.startsWith("channels/")) {
+            "li[data-video-vkey], li.pcVideoListItem, li.videoBox, li.videoblock"
+        } else {
+            "li.pcVideoListItem, li.videoBox, li.videoblock"
+        }
+        return parseCards(container, cards, serviceId, nextPage(document, finalUrl, allowLoadMore = true))
+    }
+
+    private fun validatePage(document: Document, pageUrl: String) {
+        val finalUrl = validateContinuation(document.location().ifBlank { pageUrl }, pageUrl, minimumPage = 1)
+        if (pageNumber(parameters(URI(finalUrl))) != pageNumber(parameters(URI(pageUrl)))) {
+            throw ParsingException("PornHub redirected the requested listing page")
+        }
+    }
+
+    private fun parseCards(
+        container: Element,
+        cardSelector: String,
+        serviceId: Int,
+        nextPage: Page?
+    ): InfoItemsPage<StreamInfoItem> {
         val collector = StreamInfoItemsCollector(serviceId)
         val ids = mutableSetOf<String>()
-        for (card in container.select("li.videoblock")) {
+        for (card in container.select(cardSelector)) {
             val item = PornHubStreamItemExtractor(card)
             if (item.isAd()) continue
             val id = try {
@@ -49,7 +98,7 @@ internal object PornHubCatalog {
         if (collector.items.isEmpty() && collector.errors.isNotEmpty()) {
             throw ParsingException("PornHub video cards could not be parsed", collector.errors.first())
         }
-        return InfoItemsPage(collector, nextPage(document, pageUrl))
+        return InfoItemsPage(collector, nextPage)
     }
 
     /** Validate a saved or HTML-provided continuation before making any network request. */
@@ -70,12 +119,28 @@ internal object PornHubCatalog {
         return valid
     }
 
-    private fun nextPage(document: Document, currentUrl: String): Page? {
+    /** Model and performer profile aliases may change only the kind, never the slug or list. */
+    fun validateChannelContinuation(candidate: String?, initialUrl: String, minimumPage: Int = 2): String {
+        if (candidate.isNullOrBlank()) throw ParsingException("PornHub page is missing a URL")
+        val next = URI(PornHubUrls.siteUrl(candidate))
+        val initial = URI(PornHubUrls.siteUrl(initialUrl))
+        val expectedId = PornHubUrls.channelId(initialUrl)
+        val actualId = PornHubUrls.channelId(candidate)
+        if (!PornHubUrls.sameChannel(expectedId, actualId) ||
+            next.path != URI(PornHubUrls.channelVideosUrl(actualId)).path ||
+            initial.path != URI(PornHubUrls.channelVideosUrl(expectedId)).path
+        ) throw ParsingException("PornHub pagination changed the selected channel or video tab")
+        val aliasInitialUrl = "${initial.scheme}://${initial.rawAuthority}${next.rawPath}" +
+            initial.rawQuery?.let { "?$it" }.orEmpty()
+        return validateContinuation(candidate, aliasInitialUrl, minimumPage)
+    }
+
+    private fun nextPage(document: Document, currentUrl: String, allowLoadMore: Boolean = false): Page? {
         val marker = document.selectFirst("li.page_next")
         if (marker?.hasClass("disabled") == true || marker?.attr("aria-disabled") == "true") return null
         val link = marker?.selectFirst("a[href]")
             ?: document.selectFirst("a[rel=next][href], link[rel=next][href]")
-            ?: return null
+            ?: return if (allowLoadMore) loadMorePage(document, currentUrl) else null
         if (link.hasClass("disabled") || link.attr("aria-disabled") == "true") return null
         val href = link.attr("href").trim()
         if (href.isEmpty()) return null
@@ -88,7 +153,49 @@ internal object PornHubCatalog {
         }
         val currentPage = pageNumber(parameters(URI(currentUrl)))
         if (currentPage == Int.MAX_VALUE) return null
-        return Page(validateContinuation(resolved, currentUrl, currentPage + 1))
+        return Page(if (allowLoadMore) {
+            validateChannelContinuation(resolved, currentUrl, currentPage + 1)
+        } else validateContinuation(resolved, currentUrl, currentPage + 1))
+    }
+
+    /** Read only the route and page count in this known control; never execute its JavaScript. */
+    private fun loadMorePage(document: Document, currentUrl: String): Page? {
+        val button = document.selectFirst("button#moreDataBtn[onclick]") ?: return null
+        if (button.hasAttr("disabled") || button.hasClass("disabled") ||
+            button.attr("aria-disabled") == "true"
+        ) return null
+        val command = Regex(
+            "^\\s*(?:return\\s+)?loadMoreData\\(\\s*(['\"])(.*?)\\1\\s*,\\s*" +
+                "(?:(['\"])(\\d+)\\3|(\\d+))\\s*(?:,|\\))"
+        )
+            .find(button.attr("onclick")) ?: return null
+        val totalPages = command.groupValues[4].ifEmpty { command.groupValues[5] }.toIntOrNull() ?: return null
+        val currentPage = pageNumber(parameters(URI(currentUrl)))
+        if (currentPage >= totalPages || currentPage == Int.MAX_VALUE) return null
+        val route = try {
+            URI(currentUrl).resolve(command.groupValues[2]).toString()
+        } catch (cause: IllegalArgumentException) {
+            throw ParsingException("Invalid PornHub load-more URL", cause)
+        }
+        val currentPath = URI(currentUrl).path
+        val routeUri = URI(route)
+        // A profile's Videos control can name its uploads subset. Keep paginating the
+        // selected Videos route, as the upstream extractor does, rather than switching tabs.
+        val currentId = PornHubUrls.channelId(currentUrl)
+        val routeId = PornHubUrls.channelId(route)
+        val uploadControl = (currentPath.startsWith("/model/") || currentPath.startsWith("/pornstar/")) &&
+            PornHubUrls.sameChannel(currentId, routeId) &&
+            routeUri.path == URI(PornHubUrls.channelVideosUrl(routeId)).path + "/upload"
+        val checkedRoute = if (uploadControl) {
+            route.substringBefore('?').substringBefore('#').removeSuffix("/upload") +
+                routeUri.rawQuery?.let { "?$it" }.orEmpty() + routeUri.rawFragment?.let { "#$it" }.orEmpty()
+        } else route
+        validateChannelContinuation(checkedRoute, currentUrl, minimumPage = 1)
+        val query = (parameters(URI(currentUrl)).filterKeys { it != "page" } +
+            ("page" to (currentPage + 1).toString())).entries.joinToString("&") { (key, value) ->
+            URLEncoder.encode(key, "UTF-8") + "=" + URLEncoder.encode(value, "UTF-8")
+        }
+        return Page(validateContinuation(currentUrl.substringBefore('?') + "?" + query, currentUrl, currentPage + 1))
     }
 
     private fun parameters(uri: URI): Map<String, String> {

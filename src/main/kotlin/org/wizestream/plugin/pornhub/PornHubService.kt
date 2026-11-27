@@ -78,18 +78,18 @@ class PornHubService(id: Int) : StreamingService(
         setDefaultKiosk(VIDEOS_KIOSK)
     }
 
-    override fun getChannelLHFactory(): ListLinkHandlerFactory? = null
-    override fun getChannelTabLHFactory(): ListLinkHandlerFactory? = null
+    override fun getChannelLHFactory(): ListLinkHandlerFactory = PornHubChannelLinkHandlerFactory()
+    override fun getChannelTabLHFactory(): ListLinkHandlerFactory = PornHubChannelLinkHandlerFactory(videosTab = true)
     override fun getPlaylistLHFactory(): ListLinkHandlerFactory? = null
     override fun getCommentsLHFactory(): ListLinkHandlerFactory? = null
     override fun getSuggestionExtractor(): SuggestionExtractor? = null
     override fun getSubscriptionExtractor(): SubscriptionExtractor? = null
 
     override fun getChannelExtractor(linkHandler: ListLinkHandler): ChannelExtractor =
-        throw ExtractionException("PornHub channel browsing is not supported by this plugin")
+        PornHubChannelExtractor(this, linkHandler)
 
     override fun getChannelTabExtractor(linkHandler: ListLinkHandler): ChannelTabExtractor =
-        throw ExtractionException("PornHub channel tabs are not supported by this plugin")
+        PornHubChannelTabExtractor(this, linkHandler)
 
     override fun getPlaylistExtractor(linkHandler: ListLinkHandler): PlaylistExtractor =
         throw ExtractionException("PornHub playlists are not supported by this plugin")

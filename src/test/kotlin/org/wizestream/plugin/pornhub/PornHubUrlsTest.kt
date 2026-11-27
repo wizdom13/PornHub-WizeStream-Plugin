@@ -4,12 +4,15 @@ package org.wizestream.plugin.pornhub
 import java.net.URI
 import java.net.URLDecoder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.schabi.newpipe.extractor.StreamingService
 import org.schabi.newpipe.extractor.exceptions.ParsingException
+import org.schabi.newpipe.extractor.linkhandler.ChannelTabs
 import org.schabi.newpipe.extractor.plugin.PluginManifest
 import org.schabi.newpipe.extractor.plugin.WizeStreamPlugin
 
@@ -42,6 +45,97 @@ class PornHubUrlsTest {
             "https://www.pornhub.com/embed/$videoId",
             "https://www.pornhub.org/embed/$videoId/"
         ).forEach { assertEquals(it, videoId, PornHubUrls.streamId(it)) }
+    }
+
+    @Test
+    fun `channel handlers preserve profile identity across supported URL families`() {
+        val service = PornHubService(43123)
+        val cases = listOf(
+            "https://www.pornhub.com/model/fixture-uploader" to "model/fixture-uploader",
+            "http://m.pornhub.com/model/fixture-uploader/videos/" to "model/fixture-uploader",
+            "https://fr.pornhub.org/users/fixture_user/videos/public?page=2" to "users/fixture_user",
+            "https://pornhub.com/channels/fixture-studio/videos?o=mr#top" to "channels/fixture-studio",
+            "https://www.pornhub.org/pornstar/fixture-person/" to "pornstar/fixture-person"
+        )
+        for ((url, id) in cases) {
+            val handler = checkNotNull(service.channelLHFactory).fromUrl(url)
+            assertEquals(url, id, handler.id)
+            assertEquals(url, "https://www.pornhub.com/$id", handler.url)
+            assertEquals(url, StreamingService.LinkType.CHANNEL, service.getLinkTypeByUrl(url))
+            assertFalse(url, service.streamLHFactory.acceptUrl(url))
+            assertEquals(handler.url, service.channelLHFactory.fromId(handler.id).url)
+        }
+    }
+
+    @Test
+    fun `channel video URLs distinguish public user uploads from other profile types`() {
+        for (kind in listOf("model", "pornstar", "channels", "users")) {
+            val id = "$kind/fixture-name"
+            assertEquals("https://www.pornhub.com/$id", PornHubUrls.channelUrl(id))
+            val suffix = if (kind == "users") "/videos/public" else "/videos"
+            assertEquals("https://www.pornhub.com/$id$suffix", PornHubUrls.channelVideosUrl(id))
+            assertEquals(id, PornHubUrls.channelId(PornHubUrls.channelVideosUrl(id)))
+        }
+    }
+
+    @Test
+    fun `channel tab factory retains the Videos filter for direct URL and ID entry points`() {
+        val factory = checkNotNull(PornHubService(43123).channelTabLHFactory)
+        for (id in listOf("model/fixture-channel", "users/fixture_user")) {
+            val expectedUrl = PornHubUrls.channelVideosUrl(id)
+            val handlers = listOf(
+                factory.fromId(id),
+                factory.fromUrl(PornHubUrls.channelUrl(id)),
+                factory.fromUrl(expectedUrl)
+            )
+            for (handler in handlers) {
+                assertEquals(id, handler.id)
+                assertEquals(expectedUrl, handler.url)
+                assertEquals(listOf(ChannelTabs.VIDEOS), handler.contentFilters.map { it.name })
+                assertTrue(handler.sortFilter.isNullOrEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun `channel links reject foreign identities and unsupported paths`() {
+        val service = PornHubService(43123)
+        val rejected = listOf(
+            "https://www.pornhub.com.example.com/model/fixture",
+            "https://fixture@www.pornhub.com/model/fixture",
+            "https://www.pornhub.com:8443/model/fixture",
+            "https://arbitrary.pornhub.com/model/fixture",
+            "file:///model/fixture",
+            "https://www.pornhub.com/model",
+            "https://www.pornhub.com/model/",
+            "https://www.pornhub.com/model/fixture/extra",
+            "https://www.pornhub.com/users/fixture/videos/private",
+            "https://www.pornhub.com/model/../fixture",
+            "https://www.pornhub.com/model/%2e%2e",
+            "https://www.pornhub.com/model/fixture%2fother",
+            "https://www.pornhub.com/model/fixture%5cother",
+            "https://www.pornhub.com/model/fixture%00other",
+            "https://www.pornhub.com/view_video.php?viewkey=$videoId",
+            "https://www.pornhub.com/playlist/42"
+        )
+        for (url in rejected) {
+            assertThrows(url, ParsingException::class.java) { PornHubUrls.channelId(url) }
+            assertFalse(url, checkNotNull(service.channelLHFactory).acceptUrl(url))
+        }
+        for (id in listOf("", "fixture", "model/", "model/..", "model/fixture/extra", "users/fixture?x=1", "channels/fixture#fragment")) {
+            assertThrows(id, ParsingException::class.java) { PornHubUrls.channelUrl(id) }
+            assertThrows(id, ParsingException::class.java) { PornHubUrls.channelVideosUrl(id) }
+        }
+    }
+
+    @Test
+    fun `uploader hrefs resolve against the page without inventing unsupported destinations`() {
+        val watch = PornHubUrls.streamUrl(videoId)
+        assertEquals("https://www.pornhub.com/model/fixture", PornHubUrls.channelUrlOrNull("/model/fixture", watch))
+        assertEquals("https://www.pornhub.com/channels/fixture", PornHubUrls.channelUrlOrNull("//fr.pornhub.org/channels/fixture/videos", watch))
+        for (href in listOf(null, "", "#", "javascript:void(0)", "/playlist/42", "https://unrelated.example.com/model/fixture")) {
+            assertNull(href, PornHubUrls.channelUrlOrNull(href, watch))
+        }
     }
 
     @Test

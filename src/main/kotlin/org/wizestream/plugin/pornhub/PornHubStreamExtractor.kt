@@ -6,6 +6,7 @@ import java.io.IOException
 import java.net.URI
 import java.util.Locale
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 import org.schabi.newpipe.extractor.MediaFormat
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
@@ -177,7 +178,7 @@ class PornHubStreamExtractor(service: PornHubService, linkHandler: LinkHandler) 
 
     override fun getLikeCount(): Long = PornHubPlayerData.count(page.selectFirst(".votesUp")?.text())
     override fun getDislikeCount(): Long = PornHubPlayerData.count(page.selectFirst(".votesDown")?.text())
-    override fun getUploaderName(): String = page.selectFirst(".userInfoBlock .usernameWrap a, .usernameWrap a")
+    override fun getUploaderName(): String = uploaderLink()
         ?.text().orEmpty().ifBlank {
             when (val author = schema["author"]) {
                 is JsonObject -> author.getString("name", "")
@@ -185,7 +186,9 @@ class PornHubStreamExtractor(service: PornHubService, linkHandler: LinkHandler) 
                 else -> ""
             }
         }
-    override fun getUploaderUrl(): String = ""
+    override fun getUploaderUrl(): String = PornHubUrls.channelUrlOrNull(uploaderLink()?.attr("href"), page.baseUri())
+        ?: PornHubUrls.channelUrlOrNull((schema["author"] as? JsonObject)?.getString("url"), page.baseUri())
+            .orEmpty()
     override fun getTextualUploadDate(): String? = schema.getString("uploadDate")?.takeIf(String::isNotBlank)
     override fun getUploadDate(): DateWrapper? = PornHubPlayerData.date(textualUploadDate)?.let(::DateWrapper)
     override fun getAgeLimit(): Int = 18
@@ -214,4 +217,7 @@ class PornHubStreamExtractor(service: PornHubService, linkHandler: LinkHandler) 
 
     private fun meta(key: String): String = page.selectFirst("meta[property=\"$key\"], meta[name=\"$key\"]")
         ?.attr("content").orEmpty()
+
+    private fun uploaderLink(): Element? = (page.selectFirst(".userInfoBlock .usernameWrap")
+        ?: page.selectFirst(".usernameWrap"))?.selectFirst("a")
 }
