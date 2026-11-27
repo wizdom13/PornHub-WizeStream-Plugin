@@ -1,10 +1,11 @@
 {
   "pluginId": "org.wizestream.plugin.pornhub",
   "name": "PornHub",
-  "versionCode": 6,
-  "versionName": "1.0.5",
+  "versionCode": 7,
+  "versionName": "1.0.6",
   "host": "wizestream",
   "apiVersion": "2.0",
+  "icon": "icon.png",
   "minHostVersionCode": 1052002,
   "minAndroidSdk": 24,
   "requiredCapabilities": [],
