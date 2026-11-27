@@ -4,7 +4,7 @@ A Kotlin service plugin implementing **native WizeStream plugin API 2.0**. It ad
 to WizeStream's service selector and uses the host's networking, search results, local playlists
 and player.
 
-- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.3** (`versionCode: 4`).
+- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.4** (`versionCode: 5`).
 - **Host:** WizeStream **1.52.2 or newer** (`versionCode: 1052002`), on Android **7/API 24 or newer**.
 - **Contract:** `host: "wizestream"`, `apiVersion: "2.0"`.
 - **Access:** public, anonymous responses; no API key or account credentials are required.
@@ -27,12 +27,19 @@ and player.
 | Player headers | Supply Referer and Origin headers for media sources and manifests. |
 | Metadata | Read titles, thumbnails, uploader names, duration, available counters and structured upload dates. |
 | Captions | Expose the player's `closedCaptionsFile` SRT or VTT track when supplied. |
+| Related items | Read public recommendations embedded in the watch page, preserving the current service identity and omitting duplicates, the current video, advertisements and marked premium cards. |
 | Saved items | Preserve the host-assigned service identity for history and local playlists. |
-| Downloads | Expose progressive MP4 sources when the provider supplies them; no MP4 URL is invented for HLS-only content. |
+| Downloads | Expose progressive MP4 sources from player metadata and public download buttons, retaining required request headers. WizeStream shows Download when a supported file is available; no MP4 URL is invented for HLS-only content. |
 
 Cards are scoped to the main results container. Duplicate videos and recognized advertisements
 are discarded, and unknown metadata remains unknown. Signed media query parameters are preserved;
 media sources are marked non-cacheable, and extracted information has a five-minute cache lifetime.
+
+Public download-button sources supplement the player list even when adaptive playback already
+works. Each list is bounded to 64 candidates and shares the existing eight-request metadata limit.
+Recommendations use only the fetched watch page; no additional recommendation request is made.
+Pages without embedded recommendations can still have an empty Related items tab. A video that
+offers only HLS/DASH and no public MP4 requires segmented-download support in the host to download.
 
 Search pagination accepts equivalent provider-host redirects and capitalization changes while
 preserving the search terms, filters and requested page. An invalid Next link stops pagination
@@ -47,7 +54,7 @@ extraction or to media playback.
 
 ### Current scope
 
-Subscription import, remote playlists, comments, related videos, search suggestions and live
+Subscription import, remote playlists, comments, search suggestions and live
 broadcasts are not implemented. Uploader navigation uses published profile links; a name without
 a supported link remains non-clickable. Account login, premium content and private libraries are
 outside this implementation.
@@ -85,7 +92,7 @@ WizeStream's **Install from project or URL** also accepts this public GitHub pro
 **Install from file**, select the versioned `.ppp` and a freshly downloaded matching `index.json`
 from the same publisher release. A saved catalog from an older version does not match a newer
 package; keeping it under a distinct filename helps avoid choosing an older download. Version
-1.0.3 requires its own signed release and is not implied to be published by this source update.
+1.0.4 requires its own signed release and is not implied to be published by this source update.
 
 Ordinary CI artifacts use disposable keys and are **test-only**. Distribution uses the permanent
 publisher key through the release workflow. Inclusion in the shared WizeStream Plugins catalog
@@ -341,6 +348,8 @@ public key, NSFW flag and compatibility fields. Do not modify a signed archive.
 - [WizeStream Plugin Template](https://github.com/wizdom13/WizeStream-Plugin-Template)
 - [yt-dlp provider extractor](https://github.com/yt-dlp/yt-dlp/blob/83564f85db7507486fbe3b0d0e72498f31ab0600/yt_dlp/extractor/pornhub.py)
 - [Pornhub.js search parser](https://github.com/pionxzh/Pornhub.js/blob/7c0f6a85aeb5ab108cc66c29242d4fa7a0310039/src/scrapers/search/video.ts)
+- [Watch-page recommendation selectors](https://github.com/JustalK/PORNHUB-API/blob/26fdf68e55eebb55fce1cd3d7e4cccceaac87e90/src/constants/consts_page.js)
+- [Desktop and mobile related-section variants](https://github.com/bittyferrari/ph-autonext/blob/75e64933adbbbcabc4cbec1f771c00c6ed9fc68e/content.js)
 
 The provider sources document the public data shapes used to design the independent Kotlin
 parser. Fixtures contain only synthetic neutral content.
