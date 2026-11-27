@@ -1,8 +1,8 @@
 {
   "pluginId": "org.wizestream.plugin.pornhub",
   "name": "PornHub",
-  "versionCode": 2,
-  "versionName": "1.0.1",
+  "versionCode": 3,
+  "versionName": "1.0.2",
   "host": "wizestream",
   "apiVersion": "2.0",
   "minHostVersionCode": 1052002,

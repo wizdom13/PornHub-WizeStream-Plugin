@@ -4,7 +4,7 @@ A Kotlin service plugin implementing **native WizeStream plugin API 2.0**. It ad
 to WizeStream's service selector and uses the host's networking, search results, local playlists
 and player.
 
-- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.1** (`versionCode: 2`).
+- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.2** (`versionCode: 3`).
 - **Host:** WizeStream **1.52.2 or newer** (`versionCode: 1052002`), on Android **7/API 24 or newer**.
 - **Contract:** `host: "wizestream"`, `apiVersion: "2.0"`.
 - **Access:** public, anonymous responses; no API key or account credentials are required.
@@ -33,6 +33,10 @@ and player.
 Cards are scoped to the main results container. Duplicate videos and recognized advertisements
 are discarded, and unknown metadata remains unknown. Signed media query parameters are preserved;
 media sources are marked non-cacheable, and extracted information has a five-minute cache lifetime.
+
+Search pagination accepts equivalent provider-host redirects and capitalization changes while
+preserving the search terms, filters and requested page. An invalid Next link stops pagination
+and reports its error without discarding valid results already fetched.
 
 ### Current scope
 
@@ -141,7 +145,7 @@ $pluginSdkJar = (Resolve-Path .\app\build\outputs\plugin-sdk\wizestream-plugin-a
 ```
 
 The unsigned package is written to
-`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-2.ppp`.
+`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-3.ppp`.
 The filename uses `versionCode`, not the display version.
 
 ### What CI verifies
