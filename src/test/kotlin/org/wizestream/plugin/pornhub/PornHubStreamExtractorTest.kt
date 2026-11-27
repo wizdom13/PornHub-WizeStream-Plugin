@@ -87,7 +87,7 @@ class PornHubStreamExtractorTest {
         assertEquals(90L, stream.likeCount)
         assertEquals(2L, stream.dislikeCount)
         assertFalse(stream.isSupportComments)
-        assertFalse(stream.isSupportRelatedItems)
+        assertTrue(stream.isSupportRelatedItems)
         assertFalse(stream.isSupportBulletComments)
         assertTrue(stream.audioStreams.isEmpty())
         assertTrue(stream.videoOnlyStreams.isEmpty())
@@ -100,6 +100,24 @@ class PornHubStreamExtractorTest {
         assertEquals("https://www.pornhub.com/channels/fixture-studio", info.uploaderUrl)
         assertTrue(service.channelLHFactory.acceptUrl(info.uploaderUrl))
         assertTrue("Host errors: " + info.errors, info.errors.isEmpty())
+    }
+
+    @Test
+    fun hostAggregationIncludesRelatedItemsWithoutAnotherRequest() {
+        network.extraHtml = """
+            <ul id="relatedVideosCenter"><li class="videoblock">
+              <span class="title"><a href="/view_video.php?viewkey=phrelated123">Related fixture</a></span>
+              <span class="duration">2:05</span>
+            </li></ul>
+        """.trimIndent()
+        val info = StreamInfo.getInfo(service, WATCH)
+        assertTrue("Host errors: " + info.errors, info.errors.isEmpty())
+        assertTrue(info.isSupportRelatedItems)
+        val item = info.relatedItems.single()
+        assertEquals(1200, item.serviceId)
+        assertEquals(PornHubUrls.streamUrl("phrelated123"), item.url)
+        assertEquals("Related fixture", item.name)
+        assertEquals(listOf(WATCH, MEDIA), network.requests.map { it.url() })
     }
 
     @Test

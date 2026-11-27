@@ -19,6 +19,7 @@ import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.Description
 import org.schabi.newpipe.extractor.stream.StreamExtractor
+import org.schabi.newpipe.extractor.stream.StreamInfoItemsCollector
 import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.extractor.stream.SubtitlesStream
 import org.schabi.newpipe.extractor.stream.VideoStream
@@ -64,12 +65,18 @@ class PornHubStreamExtractor(service: PornHubService, linkHandler: LinkHandler) 
         val result = mutableListOf<VideoStream>()
         val seen = mutableSetOf<String>()
         val visitedMetadata = mutableSetOf<String>()
-        val definitions = (player["mediaDefinitions"] as? List<*>).orEmpty().filterIsInstance<JsonObject>()
+        val playerDefinitions = (player["mediaDefinitions"] as? List<*>).orEmpty().filterIsInstance<JsonObject>()
+        val drmSources = playerDefinitions.filter(PornHubPlayerData::hasDrm)
+            .mapNotNull { PornHubUrls.mediaUrl(it.getString("videoUrl")) }.toMutableSet()
+        // Public download controls can expose MP4 renditions even when the player is HLS-only.
+        // Each source has its own bounded budget; a full player list must not hide downloads.
+        val definitions = playerDefinitions.take(64) + PornHubDownloadSources.definitions(page, drmSources)
         var metadataFailure: Exception? = null
 
         fun addSource(definition: JsonObject) {
             if (PornHubPlayerData.hasDrm(definition)) return
             val source = PornHubUrls.mediaUrl(definition.getString("videoUrl")) ?: return
+            if (source in drmSources) return
             val path = URI(source).path.orEmpty().lowercase(Locale.ROOT)
             // Metadata endpoints cannot be handed to the player even when format says "mp4".
             if (path == "/video/get_media" || path == "/video/get_media.php") return
@@ -100,15 +107,19 @@ class PornHubStreamExtractor(service: PornHubService, linkHandler: LinkHandler) 
                 .build()
         }
 
-        for (definition in definitions.take(64)) {
+        for (definition in definitions) {
             if (PornHubPlayerData.hasDrm(definition)) continue
             val source = PornHubUrls.mediaUrl(definition.getString("videoUrl")) ?: continue
+            if (source in drmSources) continue
             val path = URI(source).path.orEmpty()
             if (path == "/video/get_media" || path == "/video/get_media.php") {
                 // Resolve at most eight distinct metadata requests; never recurse through them.
                 if (visitedMetadata.size >= 8 || !visitedMetadata.add(source)) continue
                 try {
-                    client.getJsonArray(source, watchUrl).filterIsInstance<JsonObject>().take(64).forEach {
+                    val metadata = client.getJsonArray(source, watchUrl).filterIsInstance<JsonObject>()
+                    metadata.filter(PornHubPlayerData::hasDrm)
+                        .mapNotNullTo(drmSources) { PornHubUrls.mediaUrl(it.getString("videoUrl")) }
+                    metadata.take(64).forEach {
                         // The provider's get_media response is the MP4 rendition list.
                         val entry = JsonObject().apply {
                             putAll(it)
@@ -125,9 +136,12 @@ class PornHubStreamExtractor(service: PornHubService, linkHandler: LinkHandler) 
                 addSource(definition)
             }
         }
+        // A later metadata response can mark an earlier candidate as protected. A download
+        // button must never reintroduce that source, regardless of definition order.
+        val supported = result.filterNot { it.content in drmSources }
         // Failure of an optional MP4 metadata request must not discard an available HLS source.
-        if (result.isEmpty() && metadataFailure != null) throw metadataFailure
-        return result
+        if (supported.isEmpty() && metadataFailure != null) throw metadataFailure
+        return supported
     }
 
     private fun parseCaptions(): List<SubtitlesStream> {
@@ -202,8 +216,9 @@ class PornHubStreamExtractor(service: PornHubService, linkHandler: LinkHandler) 
     override fun getManifestRequestHeaders(): Map<String, String> = playbackHeaders
     override fun getSubtitlesDefault(): List<SubtitlesStream> = captions
     override fun getSubtitles(format: MediaFormat): List<SubtitlesStream> = captions.filter { it.format == format }
+    override fun getRelatedItems(): StreamInfoItemsCollector = PornHubRelatedItems.parse(page, serviceId, id)
     override fun isSupportComments(): Boolean = false
-    override fun isSupportRelatedItems(): Boolean = false
+    override fun isSupportRelatedItems(): Boolean = true
     override fun isSupportBulletComments(): Boolean = false
 
     override fun getTimeStamp(): Long {
