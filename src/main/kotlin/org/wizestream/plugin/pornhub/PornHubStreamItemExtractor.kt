@@ -72,8 +72,10 @@ internal class PornHubStreamItemExtractor(private val card: Element) : StreamInf
         ".usernameWrap a, .usernameWrap, a.username, .username, .uploader, .author"
     )?.text()?.trim().orEmpty()
 
-    // Channel browsing is not implemented. The host must not display a clickable dead end.
-    override fun getUploaderUrl(): String = ""
+    override fun getUploaderUrl(): String = card.select(
+        ".usernameWrap a[href], a.username[href], .username a[href], " +
+            "a.uploader[href], .uploader a[href], a.author[href], .author a[href]"
+    ).firstNotNullOfOrNull { PornHubUrls.channelUrlOrNull(it.attr("href"), card.baseUri()) }.orEmpty()
 
     override fun getThumbnails(): List<Image> {
         val image = card.selectFirst("img") ?: return emptyList()

@@ -47,7 +47,7 @@ class PornHubCatalogTest {
         assertEquals(754L, first.duration)
         assertEquals(1_250_000L, first.viewCount)
         assertEquals("Fixture uploader", first.uploaderName)
-        assertEquals("", first.uploaderUrl)
+        assertEquals("https://www.pornhub.com/model/fixture-uploader", first.uploaderUrl)
         assertEquals("https://cdn.example.com/fixture-one.jpg", first.thumbnailUrl)
         assertNotNull(first.uploadDate)
         assertEquals("2026-01-02T12:00Z", first.uploadDate!!.offsetDateTime().toString())
@@ -184,8 +184,8 @@ class PornHubCatalogTest {
         assertEquals(43123, service.serviceId)
         assertEquals("PornHub", service.serviceInfo.name)
         assertEquals(listOf(StreamingService.ServiceInfo.MediaCapability.VIDEO), service.serviceInfo.mediaCapabilities)
-        assertNull(service.channelLHFactory)
-        assertNull(service.channelTabLHFactory)
+        assertNotNull(service.channelLHFactory)
+        assertNotNull(service.channelTabLHFactory)
         assertNull(service.playlistLHFactory)
         assertNull(service.commentsLHFactory)
         assertNull(service.suggestionExtractor)
@@ -193,6 +193,52 @@ class PornHubCatalogTest {
         assertTrue(service.streamLHFactory.acceptUrl(PornHubUrls.streamUrl("phfixture001")))
         assertFalse(service.streamLHFactory.acceptUrl("https://unrelated.example.com/watch/fixture"))
         assertTrue(service.infoCacheExpirationMillis <= 300_000L)
+    }
+
+    @Test
+    fun `card uploader links open supported canonical channels`() {
+        val links = listOf(
+            "/model/fixture-uploader" to "model/fixture-uploader",
+            "/users/fixture_user/videos/public" to "users/fixture_user",
+            "https://fr.pornhub.org/channels/fixture-studio/videos?o=mr" to "channels/fixture-studio",
+            "//www.pornhub.com/pornstar/fixture-person" to "pornstar/fixture-person"
+        )
+        for ((href, id) in links) {
+            val card = Jsoup.parse(
+                """<li class=videoblock><span class=usernameWrap><a href='$href'>Fixture uploader</a></span></li>""",
+                firstUrl
+            ).selectFirst("li")!!
+            val item = PornHubStreamItemExtractor(card)
+            assertEquals(href, "https://www.pornhub.com/$id", item.getUploaderUrl())
+            assertEquals("Fixture uploader", item.getUploaderName())
+            assertEquals(StreamingService.LinkType.CHANNEL, service.getLinkTypeByUrl(item.getUploaderUrl()))
+        }
+    }
+
+    @Test
+    fun `card uploader names do not invent missing or unsupported links`() {
+        for (href in listOf(null, "", "#", "javascript:void(0)", "https://unrelated.example.com/model/fixture", "/playlist/42")) {
+            val attribute = href?.let { "href='$it'" }.orEmpty()
+            val card = Jsoup.parse(
+                "<li class=videoblock><span class=usernameWrap><a $attribute>Fixture uploader</a></span></li>",
+                firstUrl
+            ).selectFirst("li")!!
+            val item = PornHubStreamItemExtractor(card)
+            assertEquals(href.orEmpty(), "", item.getUploaderUrl())
+            assertEquals("Fixture uploader", item.getUploaderName())
+        }
+    }
+
+    @Test
+    fun `query and fragment links on channel cards do not fabricate uploader navigation`() {
+        val listing = "https://www.pornhub.com/model/fixture-channel/videos"
+        for (href in listOf("#", "#profile", "?page=2", "?o=mr")) {
+            val card = Jsoup.parse(
+                "<li class=videoblock><span class=usernameWrap><a href='$href'>Fixture uploader</a></span></li>",
+                listing
+            ).selectFirst("li")!!
+            assertEquals(href, "", PornHubStreamItemExtractor(card).getUploaderUrl())
+        }
     }
 
     @Test

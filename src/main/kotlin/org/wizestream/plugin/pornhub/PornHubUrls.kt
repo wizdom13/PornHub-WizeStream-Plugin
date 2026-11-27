@@ -12,6 +12,10 @@ internal object PornHubUrls {
     const val BASE_URL = "https://www.pornhub.com"
     private val videoId = Regex("[A-Za-z0-9]{1,64}")
     private val siteHost = Regex("(?:(?:www|m|[a-z]{2}(?:-[a-z]{2})?)\\.)?pornhub\\.(?:com|org)")
+    private val channelIdentity = Regex("(channels|model|pornstar|users)/([A-Za-z0-9][A-Za-z0-9_.-]{0,199})")
+    private val channelPath = Regex(
+        "/(channels|model|pornstar|users)/([A-Za-z0-9][A-Za-z0-9_.-]{0,199})(?:/(videos(?:/(?:upload|public))?))?/?"
+    )
 
     fun streamId(url: String): String {
         val uri = parse(url)
@@ -29,6 +33,50 @@ internal object PornHubUrls {
     fun streamUrl(id: String): String {
         if (!videoId.matches(id)) throw ParsingException("Invalid PornHub video identifier")
         return "$BASE_URL/view_video.php?viewkey=$id"
+    }
+
+    /** Profile roots and public video tabs share one stable channel identity. */
+    fun channelId(url: String): String {
+        val uri = parse(url)
+        requireSite(uri, allowHttp = true)
+        val match = channelPath.matchEntire(uri.rawPath.orEmpty())
+            ?: throw ParsingException("Not a supported PornHub channel URL")
+        val kind = match.groupValues[1]
+        val tab = match.groupValues[3]
+        if ((tab == "videos/public" && kind != "users") ||
+            (tab == "videos/upload" && kind == "channels")
+        ) throw ParsingException("Not a supported PornHub channel video tab")
+        return "$kind/${match.groupValues[2]}"
+    }
+
+    fun channelUrl(id: String): String {
+        if (!channelIdentity.matches(id)) throw ParsingException("Invalid PornHub channel identifier")
+        return "$BASE_URL/$id"
+    }
+
+    fun channelVideosUrl(id: String): String = channelUrl(id) +
+        if (id.startsWith("users/")) "/videos/public" else "/videos"
+
+    /** The site can move a public profile between these two kinds without changing its slug. */
+    fun sameChannel(expectedId: String, actualId: String): Boolean {
+        if (!channelIdentity.matches(expectedId) || !channelIdentity.matches(actualId)) return false
+        if (expectedId == actualId) return true
+        return expectedId.substringAfter('/') == actualId.substringAfter('/') &&
+            expectedId.substringBefore('/') in setOf("model", "pornstar") &&
+            actualId.substringBefore('/') in setOf("model", "pornstar")
+    }
+
+    /** An uploader name alone is not a channel URL; only use a supported published link. */
+    fun channelUrlOrNull(value: String?, baseUrl: String): String? {
+        if (value.isNullOrBlank()) return null
+        return try {
+            val reference = parse(value.trim())
+            if (reference.rawPath.isNullOrEmpty() && reference.host == null) return null
+            val resolved = parse(baseUrl).resolve(reference).toString()
+            channelUrl(channelId(resolved))
+        } catch (_: ParsingException) {
+            null
+        }
     }
 
     fun searchUrl(query: String, page: Int = 1): String {
