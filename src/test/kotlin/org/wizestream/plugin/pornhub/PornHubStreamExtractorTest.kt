@@ -77,6 +77,79 @@ class PornHubStreamExtractorTest {
     }
 
     @Test
+    fun sourceExtensionsOverrideConflictingDeclaredFormats() {
+        val cases = listOf(
+            Triple("MP4", "hls", DeliveryMethod.PROGRESSIVE_HTTP),
+            Triple("mp4", "dash", DeliveryMethod.PROGRESSIVE_HTTP),
+            Triple("m3u8", "mp4", DeliveryMethod.HLS),
+            Triple("m3u8", "dash", DeliveryMethod.HLS),
+            Triple("mpd", "mp4", DeliveryMethod.DASH),
+            Triple("mpd", "hls", DeliveryMethod.DASH)
+        )
+        val expected = cases.mapIndexed { index, (extension, _, delivery) ->
+            "https://cdn.example.com/fixture/$index.$extension?token=a%2Fb&name=other.m3u8" to delivery
+        }.toMap()
+        network.player["mediaDefinitions"] = JsonArray().apply {
+            cases.forEachIndexed { index, (_, format, _) ->
+                add(obj("""{"format":"$format","videoUrl":"${expected.keys.elementAt(index)}"}"""))
+            }
+        }
+
+        val info = StreamInfo.getInfo(service, WATCH)
+        assertTrue("Host errors: " + info.errors, info.errors.isEmpty())
+        assertEquals(expected, info.videoStreams.associate { it.content to it.deliveryMethod })
+        info.videoStreams.forEach { video ->
+            assertTrue(video.isUrl)
+            assertEquals(WATCH, video.requestHeaders!!["Referer"])
+            assertEquals(PornHubUrls.BASE_URL, video.requestHeaders!!["Origin"])
+            assertEquals(false, video.cacheable)
+            assertEquals(if (video.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP) null else video.content,
+                video.manifestUrl)
+        }
+        assertEquals(listOf(WATCH), network.requests.map { it.url() })
+    }
+
+    @Test
+    fun explicitFormatsStillSupportExtensionlessMediaUrls() {
+        val expected = mapOf(
+            "mp4" to DeliveryMethod.PROGRESSIVE_HTTP,
+            "hls" to DeliveryMethod.HLS,
+            "dash" to DeliveryMethod.DASH
+        )
+        network.player["mediaDefinitions"] = JsonArray().apply {
+            expected.keys.forEach { format ->
+                add(obj("""{"format":"$format","videoUrl":"https://cdn.example.com/fixture/$format?token=a%2Fb"}"""))
+            }
+        }
+
+        val info = StreamInfo.getInfo(service, WATCH)
+        assertTrue("Host errors: " + info.errors, info.errors.isEmpty())
+        assertEquals(expected.values.toSet(), info.videoStreams.map { it.deliveryMethod }.toSet())
+        assertEquals(expected.size, info.videoStreams.size)
+        assertEquals(listOf(WATCH), network.requests.map { it.url() })
+    }
+
+    @Test
+    fun inheritedMetadataFormatCannotOverrideRenditionExtensions() {
+        network.player["mediaDefinitions"] = array("""{"format":"hls","videoUrl":"$MEDIA"}""")
+        val mp4 = "https://cdn.example.com/fixture/720.MP4?token=a%2Fb&expires=123"
+        val hls = "https://cdn.example.com/fixture/master.m3u8"
+        val dash = "https://cdn.example.com/fixture/manifest.mpd"
+        network.metadata = """[
+            {"videoUrl":"$mp4","quality":"720"},
+            {"videoUrl":"$hls"},
+            {"videoUrl":"$dash"}
+        ]"""
+
+        val info = StreamInfo.getInfo(service, WATCH)
+        assertTrue("Host errors: " + info.errors, info.errors.isEmpty())
+        assertEquals(mapOf(mp4 to DeliveryMethod.PROGRESSIVE_HTTP, hls to DeliveryMethod.HLS,
+            dash to DeliveryMethod.DASH), info.videoStreams.associate { it.content to it.deliveryMethod })
+        assertEquals("720p", info.videoStreams.single { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.getResolution())
+        assertEquals(listOf(WATCH, MEDIA), network.requests.map { it.url() })
+    }
+
+    @Test
     fun metadataAndCapabilityFlagsAreAccurate() {
         val stream = extract()
         assertEquals(1200, stream.serviceId)

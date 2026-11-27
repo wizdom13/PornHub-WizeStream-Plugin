@@ -63,6 +63,26 @@ class PornHubDownloadSourcesTest {
     }
 
     @Test
+    fun conflictingPlayerLabelDoesNotHideDuplicatePublicMp4Link() {
+        val signed = "$MP4?token=a%2Fb&expires=123"
+        network.definitions.add(source(signed, "hls").apply { put("quality", 720) })
+        network.links = """<a class="downloadBtn" href="${signed.replace("&", "&amp;")}">Download fixture</a>"""
+
+        val info = StreamInfo.getInfo(service, WATCH)
+        assertTrue("Host errors: " + info.errors, info.errors.isEmpty())
+        assertEquals(2, info.videoStreams.size)
+        assertEquals(listOf(HLS), info.videoStreams.filter { it.deliveryMethod == DeliveryMethod.HLS }.map { it.content })
+        val download = info.videoStreams.single { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+        assertEquals(signed, download.content)
+        assertEquals("720p", download.getResolution())
+        assertTrue(download.isUrl)
+        assertEquals(WATCH, download.requestHeaders!!["Referer"])
+        assertEquals(PornHubUrls.BASE_URL, download.requestHeaders!!["Origin"])
+        assertEquals(false, download.cacheable)
+        assertEquals(listOf(WATCH), network.requests)
+    }
+
+    @Test
     fun arbitraryLinksUnsafeUrlsAndManifestButtonsAreNotInventedAsDownloads() {
         val links = listOf(
             "https://cdn.example.com/fixture/master.m3u8",

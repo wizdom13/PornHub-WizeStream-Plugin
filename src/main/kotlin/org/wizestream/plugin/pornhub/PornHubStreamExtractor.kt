@@ -81,10 +81,16 @@ class PornHubStreamExtractor(service: PornHubService, linkHandler: LinkHandler) 
             // Metadata endpoints cannot be handed to the player even when format says "mp4".
             if (path == "/video/get_media" || path == "/video/get_media.php") return
             val format = definition.getString("format", "").lowercase(Locale.ROOT)
+            // A parent metadata label can be stale or describe another rendition. Recognized
+            // file extensions take precedence; explicit format labels still support CDN URLs
+            // without an extension. Never turn an HLS/DASH manifest into a progressive file.
             val delivery = when {
-                path.endsWith(".m3u8") || format == "hls" -> DeliveryMethod.HLS
-                path.endsWith(".mpd") || format == "dash" -> DeliveryMethod.DASH
-                path.endsWith(".mp4") || format == "mp4" -> DeliveryMethod.PROGRESSIVE_HTTP
+                path.endsWith(".m3u8") -> DeliveryMethod.HLS
+                path.endsWith(".mpd") -> DeliveryMethod.DASH
+                path.endsWith(".mp4") -> DeliveryMethod.PROGRESSIVE_HTTP
+                format == "hls" -> DeliveryMethod.HLS
+                format == "dash" -> DeliveryMethod.DASH
+                format == "mp4" -> DeliveryMethod.PROGRESSIVE_HTTP
                 else -> return
             }
             if (!seen.add(source)) return
