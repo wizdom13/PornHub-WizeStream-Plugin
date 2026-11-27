@@ -276,6 +276,6 @@ class PornHubClientTest {
         }
 
         override fun executeAsync(request: Request, callback: AsyncCallback): CancellableCall =
-            throw UnsupportedOperationException("Fixture downloader has no asynchronous transport")
+            completedFixtureCall(callback) { execute(request) }
     }
 }

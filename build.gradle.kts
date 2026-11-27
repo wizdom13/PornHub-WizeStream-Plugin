@@ -62,6 +62,8 @@ dependencies {
     compileOnly("org.apache.commons:commons-lang3:${property("lang3Version")}")
     compileOnly("com.github.spotbugs:spotbugs-annotations:${property("spotbugsVersion")}")
     testImplementation("junit:junit:4.13.2")
+    // Match the host transport so timeout tests exercise the real CancellableCall.cancel API.
+    testImplementation("com.squareup.okhttp3:okhttp:5.3.2")
     desugarConfig("com.android.tools:desugar_jdk_libs_configuration_nio:${property("desugarJdkLibsVersion")}")
     // Build Tools 36.1.0 bundles D8 9.0.3-dev, which cannot rewrite Kotlin 2.3 metadata.
     // Pin a standalone compiler supported by https://developer.android.com/build/kotlin-support.

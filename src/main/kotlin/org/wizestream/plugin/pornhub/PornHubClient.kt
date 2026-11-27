@@ -19,10 +19,15 @@ import org.schabi.newpipe.extractor.exceptions.PrivateContentException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 
 /** All extraction requests use the host downloader; no browser code or credentials are executed. */
-internal class PornHubClient(private val downloader: Downloader) {
+internal class PornHubClient(
+    downloader: Downloader,
+    timeoutMillis: Long = PornHubRequests.DEFAULT_TIMEOUT_MILLIS
+) {
+    private val requests = PornHubRequests(downloader, timeoutMillis)
+
     fun getPage(url: String): Document {
         val requestUrl = PornHubUrls.siteUrl(url)
-        val response = downloader.get(requestUrl, headers(PornHubUrls.BASE_URL + "/"))
+        val response = requests.get(requestUrl, headers(PornHubUrls.BASE_URL + "/"))
         val body = boundedBody(response)
         val finalUrl = response.latestUrl().ifBlank { requestUrl }
         PornHubUrls.siteUrl(finalUrl)
@@ -39,7 +44,7 @@ internal class PornHubClient(private val downloader: Downloader) {
         if (path != "/video/get_media" && path != "/video/get_media.php") {
             throw ParsingException("Unsupported PornHub media metadata endpoint")
         }
-        val response = downloader.get(requestUrl, headers(PornHubUrls.siteUrl(referer)))
+        val response = requests.get(requestUrl, headers(PornHubUrls.siteUrl(referer)))
         val body = boundedBody(response)
         val finalUrl = response.latestUrl().ifBlank { requestUrl }
         PornHubUrls.siteUrl(finalUrl)

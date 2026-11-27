@@ -429,7 +429,7 @@ class PornHubChannelExtractorTest {
         }
 
         override fun executeAsync(request: Request, callback: AsyncCallback): CancellableCall =
-            throw AssertionError("Channel fixtures use synchronous extraction")
+            completedFixtureCall(callback) { execute(request) }
     }
 
     companion object {

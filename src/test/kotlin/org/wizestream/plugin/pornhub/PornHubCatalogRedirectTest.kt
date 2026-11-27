@@ -180,6 +180,6 @@ class PornHubCatalogRedirectTest {
         }
 
         override fun executeAsync(request: Request, callback: AsyncCallback): CancellableCall =
-            throw AssertionError("Catalog extraction must not use asynchronous requests")
+            completedFixtureCall(callback) { execute(request) }
     }
 }
