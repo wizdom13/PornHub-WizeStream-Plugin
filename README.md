@@ -4,7 +4,7 @@ A Kotlin service plugin implementing **native WizeStream plugin API 2.0**. It ad
 to WizeStream's service selector and uses the host's networking, search results, local playlists
 and player.
 
-- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.5** (`versionCode: 6`).
+- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.6** (`versionCode: 7`).
 - **Host:** WizeStream **1.52.2 or newer** (`versionCode: 1052002`), on Android **7/API 24 or newer**.
 - **Contract:** `host: "wizestream"`, `apiVersion: "2.0"`.
 - **Access:** public, anonymous responses; no API key or account credentials are required.
@@ -14,6 +14,19 @@ and player.
 [WizeStream](https://github.com/wizdom13/WizeStream) ·
 [Plugin API and installation guide](https://github.com/wizdom13/WizeStream/blob/pipe/docs/plugins.md) ·
 [Report a plugin issue](https://github.com/wizdom13/PornHub-WizeStream-Plugin/issues)
+
+## Service icon
+
+Version 1.0.6 includes a dedicated PornHub icon in the signed plugin package. The
+manifest declares `"icon": "icon.png"`; WizeStream loads it for its service selector after
+installing this version and restarting. The icon uses a transparent, single-color design
+so the host can tint it for light and dark themes. Older installed packages without the
+icon continue to show the generic plugin symbol until updated.
+
+The [editable vector and attribution](artwork/README.md) are included. `pluginPackage`
+verifies that the declared image is present in the final archive, decodes, is no larger
+than 256 KiB, and fits within 512 × 512 pixels. Replacing the icon changes the signed
+package, so retain the publisher key and increment `versionCode` for published updates.
 
 ## Supported features
 
@@ -99,7 +112,7 @@ WizeStream's **Install from project or URL** also accepts this public GitHub pro
 **Install from file**, select the versioned `.ppp` and a freshly downloaded matching `index.json`
 from the same publisher release. A saved catalog from an older version does not match a newer
 package; keeping it under a distinct filename helps avoid choosing an older download. Version
-1.0.5 requires its own signed release and is not implied to be published by this source update.
+1.0.6 requires its own signed release and is not implied to be published by this source update.
 
 Ordinary CI artifacts use disposable keys and are **test-only**. Distribution uses the permanent
 publisher key through the release workflow. Inclusion in the shared WizeStream Plugins catalog
@@ -168,7 +181,7 @@ $pluginSdkJar = (Resolve-Path .\app\build\outputs\plugin-sdk\wizestream-plugin-a
 ```
 
 The unsigned package is written to
-`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-6.ppp`.
+`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-7.ppp`.
 The filename uses `versionCode`, not the display version.
 
 ### What CI verifies

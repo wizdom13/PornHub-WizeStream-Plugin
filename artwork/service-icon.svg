@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>PornHub service monogram</title>
+  <!-- Original monochrome PH monogram; GPL-3.0-or-later. -->
+  <g fill="#000000">
+    <path fill-rule="evenodd" d="M26 48h48c37 0 57 19 57 52s-20 52-57 52H53v56H26V48Zm27 26v52h21c20 0 30-8 30-26S94 74 74 74H53Z"/>
+    <path d="M145 48h27v64h32V48h27v160h-27v-70h-32v70h-27V48Z"/>
+  </g>
+</svg>
