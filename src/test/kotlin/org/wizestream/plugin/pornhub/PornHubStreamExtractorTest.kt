@@ -335,7 +335,7 @@ class PornHubStreamExtractorTest {
         }
 
         override fun executeAsync(request: Request, callback: AsyncCallback): CancellableCall =
-            throw UnsupportedOperationException("Synthetic fixture downloader is synchronous")
+            completedFixtureCall(callback) { execute(request) }
 
         private fun html(): String = """
             <!doctype html><html><head>

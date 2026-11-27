@@ -4,7 +4,7 @@ A Kotlin service plugin implementing **native WizeStream plugin API 2.0**. It ad
 to WizeStream's service selector and uses the host's networking, search results, local playlists
 and player.
 
-- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.2** (`versionCode: 3`).
+- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.3** (`versionCode: 4`).
 - **Host:** WizeStream **1.52.2 or newer** (`versionCode: 1052002`), on Android **7/API 24 or newer**.
 - **Contract:** `host: "wizestream"`, `apiVersion: "2.0"`.
 - **Access:** public, anonymous responses; no API key or account credentials are required.
@@ -38,6 +38,13 @@ Search pagination accepts equivalent provider-host redirects and capitalization 
 preserving the search terms, filters and requested page. An invalid Next link stops pagination
 and reports its error without discarding valid results already fetched.
 
+Each HTML or media-metadata request uses the host's asynchronous downloader with a **30-second
+overall deadline**, including queueing and response download. A stalled request is cancelled
+and reported as a timeout; leaving an interrupted extraction cancels its request. Final redirect
+URLs, request headers and provider error categories are preserved. There are no automatic retries
+or alternate-network fallbacks. The deadline applies to each request, not to a whole multi-request
+extraction or to media playback.
+
 ### Current scope
 
 Subscription import, remote playlists, comments, related videos, search suggestions and live
@@ -49,6 +56,8 @@ The parser reads literal player JSON and structured HTML. It does not execute we
 synthesize consent or login cookies, or bypass age verification, geographic restrictions, payment,
 DRM or browser challenges. Removed, restricted and unavailable resources produce extraction errors.
 The provider can change its markup or reject requests from particular networks or regions.
+The request deadline prevents an indefinitely pending network request; it does not establish why
+a particular device was stuck loading or guarantee that the provider returns usable results.
 
 ## Install
 
@@ -72,10 +81,11 @@ installation URL is:
 https://github.com/wizdom13/PornHub-WizeStream-Plugin/releases/download/repo/index.json
 ```
 
-**This URL is usable only after the first successful publication and when the release assets
-are accessible without GitHub authentication.** This repository is currently private, so a
-release here does not by itself provide a publicly downloadable plugin repository. Public asset
-access must be arranged separately; the workflow does not change repository visibility.
+WizeStream's **Install from project or URL** also accepts this public GitHub project URL. For
+**Install from file**, select the versioned `.ppp` and a freshly downloaded matching `index.json`
+from the same publisher release. A saved catalog from an older version does not match a newer
+package; keeping it under a distinct filename helps avoid choosing an older download. Version
+1.0.3 requires its own signed release and is not implied to be published by this source update.
 
 Ordinary CI artifacts use disposable keys and are **test-only**. Distribution uses the permanent
 publisher key through the release workflow. Inclusion in the shared WizeStream Plugins catalog
@@ -104,8 +114,7 @@ containing `sdk.dir=/absolute/path/to/android-sdk` to both projects. On Windows,
 slashes in that properties-file path, for example `sdk.dir=C:/Android/Sdk`.
 
 Keep sibling checkouts named `WizeStream` and `PornHub-WizeStream-Plugin`. This repository uses
-the host wrapper and does not include another Gradle wrapper. Cloning the private plugin
-repository requires your usual authenticated GitHub access.
+the host wrapper and does not include another Gradle wrapper.
 
 ### Linux or macOS
 
@@ -145,7 +154,7 @@ $pluginSdkJar = (Resolve-Path .\app\build\outputs\plugin-sdk\wizestream-plugin-a
 ```
 
 The unsigned package is written to
-`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-3.ppp`.
+`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-4.ppp`.
 The filename uses `versionCode`, not the display version.
 
 ### What CI verifies
@@ -156,6 +165,9 @@ identity, uploader navigation, channel metadata and video tabs, catalog parsing 
 media sources, subtitles, request headers, and unavailable or restricted responses. Pagination
 is also tested with a fresh extractor, matching how the host loads subsequent channel pages.
 All provider responses used by the tests are synthetic; no live service response is required.
+Request tests exercise successful search and Videos loading through the asynchronous host API,
+stalled callbacks, cancellation through a real host `CancellableCall`, late callbacks, error
+propagation and thread interruption. The test transport handles never make HTTP requests.
 
 The `.ppp` packaging check verifies that the archive contains its manifest and DEX and excludes
 replacement copies of host-provided classes. CI uploads the test package and JVM test reports.
