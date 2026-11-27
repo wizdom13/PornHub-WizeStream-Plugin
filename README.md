@@ -4,7 +4,7 @@ A Kotlin service plugin implementing **native WizeStream plugin API 2.0**. It ad
 to WizeStream's service selector and uses the host's networking, search results, local playlists
 and player.
 
-- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.4** (`versionCode: 5`).
+- **Plugin:** `org.wizestream.plugin.pornhub`, version **1.0.5** (`versionCode: 6`).
 - **Host:** WizeStream **1.52.2 or newer** (`versionCode: 1052002`), on Android **7/API 24 or newer**.
 - **Contract:** `host: "wizestream"`, `apiVersion: "2.0"`.
 - **Access:** public, anonymous responses; no API key or account credentials are required.
@@ -37,9 +37,16 @@ media sources are marked non-cacheable, and extracted information has a five-min
 
 Public download-button sources supplement the player list even when adaptive playback already
 works. Each list is bounded to 64 candidates and shares the existing eight-request metadata limit.
+Version 1.0.5 gives recognized `.mp4`, `.m3u8` and `.mpd` URL extensions precedence over conflicting
+player or inherited metadata format labels. This keeps advertised MP4 files available for download
+and preserves HLS/DASH sources as manifests. Explicit format labels still support CDN URLs without
+an extension. The correction is covered by synthetic fixtures; it does not establish why a
+particular video has no Download button on a device.
+
 Recommendations use only the fetched watch page; no additional recommendation request is made.
-Pages without embedded recommendations can still have an empty Related items tab. A video that
-offers only HLS/DASH and no public MP4 requires segmented-download support in the host to download.
+Pages without embedded recommendations can still have an empty Related items tab. WizeStream
+1.53.0 supports progressive-file downloads. A video that offers only HLS/DASH and no public MP4
+requires segmented-download support in the host to download.
 
 Search pagination accepts equivalent provider-host redirects and capitalization changes while
 preserving the search terms, filters and requested page. An invalid Next link stops pagination
@@ -92,7 +99,7 @@ WizeStream's **Install from project or URL** also accepts this public GitHub pro
 **Install from file**, select the versioned `.ppp` and a freshly downloaded matching `index.json`
 from the same publisher release. A saved catalog from an older version does not match a newer
 package; keeping it under a distinct filename helps avoid choosing an older download. Version
-1.0.4 requires its own signed release and is not implied to be published by this source update.
+1.0.5 requires its own signed release and is not implied to be published by this source update.
 
 Ordinary CI artifacts use disposable keys and are **test-only**. Distribution uses the permanent
 publisher key through the release workflow. Inclusion in the shared WizeStream Plugins catalog
@@ -161,7 +168,7 @@ $pluginSdkJar = (Resolve-Path .\app\build\outputs\plugin-sdk\wizestream-plugin-a
 ```
 
 The unsigned package is written to
-`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-4.ppp`.
+`PornHub-WizeStream-Plugin/build/repo/pornhub-wizestream-6.ppp`.
 The filename uses `versionCode`, not the display version.
 
 ### What CI verifies
