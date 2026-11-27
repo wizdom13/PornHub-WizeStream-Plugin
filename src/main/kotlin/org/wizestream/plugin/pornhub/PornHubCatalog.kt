@@ -4,6 +4,7 @@ package org.wizestream.plugin.pornhub
 import java.net.URI
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.util.Locale
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.schabi.newpipe.extractor.ListExtractor.InfoItemsPage
@@ -20,7 +21,7 @@ internal object PornHubCatalog {
         serviceId: Int,
         containerId: String
     ): InfoItemsPage<StreamInfoItem> {
-        validatePage(document, pageUrl)
+        val finalUrl = validatePage(document, pageUrl)
         val container = document.getElementById(containerId)
         if (container == null) {
             if (document.selectFirst(".noResults, .no-results, .no_results, #noResults") != null) {
@@ -28,7 +29,7 @@ internal object PornHubCatalog {
             }
             throw ParsingException("PornHub returned an unrecognized video listing")
         }
-        return parseCards(container, "li.videoblock", serviceId, nextPage(document, pageUrl))
+        return parseCards(container, "li.videoblock", serviceId) { nextPage(document, finalUrl) }
     }
 
     /** Profile lists have different containers from search and the general video catalog. */
@@ -63,21 +64,22 @@ internal object PornHubCatalog {
         } else {
             "li.pcVideoListItem, li.videoBox, li.videoblock"
         }
-        return parseCards(container, cards, serviceId, nextPage(document, finalUrl, allowLoadMore = true))
+        return parseCards(container, cards, serviceId) { nextPage(document, finalUrl, allowLoadMore = true) }
     }
 
-    private fun validatePage(document: Document, pageUrl: String) {
+    private fun validatePage(document: Document, pageUrl: String): String {
         val finalUrl = validateContinuation(document.location().ifBlank { pageUrl }, pageUrl, minimumPage = 1)
         if (pageNumber(parameters(URI(finalUrl))) != pageNumber(parameters(URI(pageUrl)))) {
             throw ParsingException("PornHub redirected the requested listing page")
         }
+        return finalUrl
     }
 
     private fun parseCards(
         container: Element,
         cardSelector: String,
         serviceId: Int,
-        nextPage: Page?
+        nextPage: () -> Page?
     ): InfoItemsPage<StreamInfoItem> {
         val collector = StreamInfoItemsCollector(serviceId)
         val ids = mutableSetOf<String>()
@@ -98,7 +100,15 @@ internal object PornHubCatalog {
         if (collector.items.isEmpty() && collector.errors.isNotEmpty()) {
             throw ParsingException("PornHub video cards could not be parsed", collector.errors.first())
         }
-        return InfoItemsPage(collector, nextPage)
+        val continuation = try {
+            nextPage()
+        } catch (error: ParsingException) {
+            // A broken Next control must not discard the valid cards already fetched.
+            // Keep the rejection visible and stop pagination; never fetch the rejected URL.
+            if (collector.items.isEmpty()) throw error
+            return InfoItemsPage(collector.items, null, collector.errors + error)
+        }
+        return InfoItemsPage(collector, continuation)
     }
 
     /** Validate a saved or HTML-provided continuation before making any network request. */
@@ -111,13 +121,34 @@ internal object PornHubCatalog {
         val nextQuery = parameters(next)
         val initialQuery = parameters(initial)
         val page = pageNumber(nextQuery)
-        if (next.host != initial.host || next.path != initial.path || next.fragment != null ||
-            nextQuery.filterKeys { it != "page" } != initialQuery.filterKeys { it != "page" } ||
-            page < minimumPage) {
-            throw ParsingException("PornHub pagination changed the listing or did not advance")
+        // siteUrl has checked both hosts against the provider allowlist. A redirect between
+        // its desktop/mobile/language hosts does not change the selected listing.
+        if (listingPath(next) != listingPath(initial)) {
+            throw ParsingException("PornHub pagination changed the listing path")
         }
+        val nextIdentity = listingParameters(next, nextQuery)
+        val initialIdentity = listingParameters(initial, initialQuery)
+        if (nextIdentity != initialIdentity) {
+            val changedKeys = (nextIdentity.keys + initialIdentity.keys)
+                .filter { nextIdentity[it] != initialIdentity[it] }.sorted()
+            // Include parameter names only: search text and other query values stay private.
+            throw ParsingException("PornHub pagination changed listing parameters: " + changedKeys.joinToString(", "))
+        }
+        if (page < minimumPage) throw ParsingException("PornHub pagination did not advance to the requested page")
         return valid
     }
+
+    private fun listingPath(uri: URI): String = when (uri.path) {
+        "/video/", "/video/search/" -> uri.path.removeSuffix("/")
+        else -> uri.path
+    }
+
+    private fun listingParameters(uri: URI, query: Map<String, String>): Map<String, String> =
+        query.filterKeys { it != "page" }.mapValues { (key, value) ->
+            // Keyword searches can be canonicalized to lowercase by the provider. Do not
+            // case-fold channel slugs, filters, or the actual URL sent to the downloader.
+            if (listingPath(uri) == "/video/search" && key == "search") value.lowercase(Locale.ROOT) else value
+        }
 
     /** Model and performer profile aliases may change only the kind, never the slug or list. */
     fun validateChannelContinuation(candidate: String?, initialUrl: String, minimumPage: Int = 2): String {

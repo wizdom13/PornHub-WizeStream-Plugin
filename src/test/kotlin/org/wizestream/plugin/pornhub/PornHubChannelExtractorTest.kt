@@ -349,14 +349,18 @@ class PornHubChannelExtractorTest {
     }
 
     @Test
-    fun `HTML pagination cannot replace the selected channel`() {
+    fun `HTML pagination preserves current videos without replacing the selected channel`() {
         network.pages[VIDEOS] = Fixture(videoPage(
             "<div class=profileVids><ul>${card("phfirst", "First fixture")}</ul></div>",
             nextHref = "/model/other-channel/videos?page=2"
         ))
         val extractor = service.getChannelTabExtractorFromId(ID, ChannelTabs.VIDEOS)
         extractor.fetchPage()
-        assertThrows(ParsingException::class.java) { extractor.initialPage }
+        val result = extractor.initialPage
+        assertEquals(listOf("First fixture"), result.items.map { it.name })
+        assertFalse(result.hasNextPage())
+        assertEquals(1, result.errors.size)
+        assertTrue(result.errors.single() is ParsingException)
         assertEquals(listOf(VIDEOS), network.requested)
     }
 
